@@ -1,4 +1,4 @@
 # modbus2cstruct
-Convert any modbus registers to hardcoded C-struct.
-Convertation are defined by set of flexible rules.
-Rules are stored in config file.
+Convert any Modbus registers into static C structures.
+The conversion logic is defined by a flexible set of rules stored in a configuration file.
+Designed to normalize data from various Modbus-sources into your standard data bus.
