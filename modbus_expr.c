@@ -106,8 +106,12 @@ static void lex_number(lexer_t *L, token_t *t) {
     buf[i++] = advance(L);
     buf[i++] = advance(L);
 
-    while (isxdigit((unsigned char)peek(L)))
-      buf[i++] = advance(L);
+    while (isxdigit((unsigned char)peek(L))) {
+      if( i < 62 )
+        buf[i++] = advance(L);
+      else
+        break;
+    }
 
     buf[i] = '\0';
     t->type = T_NUM_INT;
@@ -117,8 +121,12 @@ static void lex_number(lexer_t *L, token_t *t) {
   }
 
   /* пока числа, собираем буфер */
-  while (isdigit((unsigned char)peek(L)))
-    buf[i++] = advance(L);
+  while (isdigit((unsigned char)peek(L))) {
+    if( i < 62 )
+      buf[i++] = advance(L);
+    else
+      break;
+  }
 
   /* Если дробное число или число в экспоненциальном представлении
      Если встретилась точка,
@@ -132,8 +140,12 @@ static void lex_number(lexer_t *L, token_t *t) {
       buf[i++] = advance(L);
 
     /* дробную часть переносим в буфер */
-    while (isdigit((unsigned char)peek(L)))
-      buf[i++] = advance(L);
+    while (isdigit((unsigned char)peek(L))) {
+      if( i < 62 )
+        buf[i++] = advance(L);
+      else
+        break;
+    }
 
     /* разбор для экспоненциального представления */
     if (peek(L) == 'e' || peek(L) == 'E') {
@@ -144,7 +156,13 @@ static void lex_number(lexer_t *L, token_t *t) {
         buf[i++] = advance(L);
       /* значение порядка */
       while (isdigit((unsigned char)peek(L)))
-        buf[i++] = advance(L);
+      {
+        if( i < 62 )
+          buf[i++] = advance(L);
+        else
+          break;
+      }
+
     }
   }
 
@@ -188,7 +206,7 @@ static void lex_next(lexer_t *L) {
   }
 
   /* Если число или точка */
-  if (isdigit(c) || (c == '.' && isdigit((unsigned char)L->src[L->pos + 1]))) {
+  if (isdigit((unsigned char)c) || (c == '.' && isdigit((unsigned char)L->src[L->pos + 1]))) {
     lex_number(L, &L->cur); // начинаем разбор числа
     return;
   }
@@ -242,6 +260,8 @@ static void lex_next(lexer_t *L) {
     break;
   case '=':
     L->cur.type = (peek(L) == '=') ? (L->pos++, T_EQ) : T_EOF;
+    /* одиночный символ '=' должен отсутствовать в правилах,
+       т.к. мы не поддерживаем вложенные выражения с присваиванием */
     break;
   case '<':
 
@@ -376,7 +396,10 @@ static expr_node_t *parse_expr(lexer_t *L) {
     expr_node_t *yes = parse_expr(L);
 
     if (CUR(L) != T_COLON)
+    {
+      expr_free( yes );
       return cond;
+    }
 
     ADV(L);
 
