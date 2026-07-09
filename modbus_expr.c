@@ -5,13 +5,7 @@
 #include <string.h>
 #include <time.h>
 
-/*============================================================================
- * Лексический и синтаксический разбор
- *============================================================================*/
-
-/*
- * Токены
- */
+/* Лексический и синтаксический разбор */
 
 /* Тип токена */
 typedef enum {
@@ -47,9 +41,7 @@ typedef enum {
   T_NOT        /* ! */
 } tok_t;
 
-/*
- * Тип токена
- */
+/* Токен */
 typedef struct {
   tok_t type;     /* Тип токена */
   int64_t ival;   /* Целочисленное значение */
@@ -76,6 +68,38 @@ static expr_node_t *parse_add(lexer_t *L);
 static expr_node_t *parse_mul(lexer_t *L);
 static expr_node_t *parse_unary(lexer_t *L);
 static expr_node_t *parse_primary(lexer_t *L);
+/*
+static int  parse_error = 0;
+ */
+/* Функция для установки/сброса и проверки ошибок */
+/*
+static void set_error()    { parse_error = 1; }
+static void reset_parser() { parse_error = 0; }
+static int  has_error()    { return parse_error; }
+ */
+/* Безопасные сдвиги */
+static uint64_t safe_shl(int64_t left, int64_t right) {
+  /* Ограничиваем сдвиг разумным диапазоном */
+  if (right < 0 || right >= 64) return 0;
+
+  /* Приводим к беззнаковому для безопасного сдвига */
+  uint64_t uleft = (uint64_t)left;
+  uint64_t result = uleft << (uint64_t)right;
+
+  /* Восстанавливаем знак для отрицательных чисел (арифметический сдвиг)
+     Но для беззнаковых операций это не нужно - результат всегда беззнаковый */
+  return result;
+}
+
+static uint64_t safe_shr(int64_t left, int64_t right) {
+  if (right < 0 || right >= 64) return 0;
+
+  /* Для отрицательных чисел - арифметический сдвиг вправо */
+  if (left < 0) {
+    return (uint64_t)(left >> right); /* implementation-defined, но часто арифметический */
+  }
+  return (uint64_t)left >> (uint64_t)right;
+}
 
 /* пропуск пробелов */
 static void skip_ws(lexer_t *L) {
@@ -388,23 +412,40 @@ static expr_node_t *node_new(node_kind_t k) {
 static expr_node_t *parse_expr(lexer_t *L) {
 
   expr_node_t *cond = parse_lor(L);
+  if(!cond) return NULL;
 
   if (CUR(L) == T_QUESTION) {
-
     ADV(L);
 
     expr_node_t *yes = parse_expr(L);
+    if (!yes) {
+      expr_free(cond);
+      return NULL;
+    }
 
     if (CUR(L) != T_COLON)
     {
       expr_free( yes );
-      return cond;
+      expr_free( cond );
+      return NULL;
     }
 
     ADV(L);
 
     expr_node_t *no = parse_expr(L);
+    if (!no) {
+      expr_free(cond);
+      expr_free(yes);
+      return NULL;
+    }
+
     expr_node_t *n = node_new(NODE_TERNARY);
+    if (!n) {
+      expr_free(cond);
+      expr_free(yes);
+      expr_free(no);
+      return NULL;
+    }
 
     n->ternary.cond = cond;
     n->ternary.yes = yes;
@@ -418,6 +459,8 @@ static expr_node_t *parse_expr(lexer_t *L) {
 
 static expr_node_t *parse_lor(lexer_t *L) {
   expr_node_t *left = parse_land(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -429,7 +472,16 @@ static expr_node_t *parse_lor(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_land(L);
+    if (!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(left);
+      expr_free(right);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -440,6 +492,8 @@ static expr_node_t *parse_lor(lexer_t *L) {
 
 static expr_node_t *parse_land(lexer_t *L) {
   expr_node_t *left = parse_bor(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -451,7 +505,17 @@ static expr_node_t *parse_land(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_bor(L);
+    if(!right)
+    {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if(!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -462,6 +526,7 @@ static expr_node_t *parse_land(lexer_t *L) {
 
 static expr_node_t *parse_bor(lexer_t *L) {
   expr_node_t *left = parse_bxor(L);
+  if(!left) return NULL;
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -473,7 +538,16 @@ static expr_node_t *parse_bor(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_bxor(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if(!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -484,6 +558,8 @@ static expr_node_t *parse_bor(lexer_t *L) {
 
 static expr_node_t *parse_bxor(lexer_t *L) {
   expr_node_t *left = parse_band(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -495,7 +571,16 @@ static expr_node_t *parse_bxor(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_band(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -506,6 +591,8 @@ static expr_node_t *parse_bxor(lexer_t *L) {
 
 static expr_node_t *parse_band(lexer_t *L) {
   expr_node_t *left = parse_eq(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -517,7 +604,16 @@ static expr_node_t *parse_band(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_eq(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if(!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -528,6 +624,8 @@ static expr_node_t *parse_band(lexer_t *L) {
 
 static expr_node_t *parse_eq(lexer_t *L) {
   expr_node_t *left = parse_rel(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -542,7 +640,16 @@ static expr_node_t *parse_eq(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_rel(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -553,6 +660,8 @@ static expr_node_t *parse_eq(lexer_t *L) {
 
 static expr_node_t *parse_rel(lexer_t *L) {
   expr_node_t *left = parse_shift(L);
+  if(!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -573,7 +682,16 @@ static expr_node_t *parse_rel(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_shift(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -584,6 +702,8 @@ static expr_node_t *parse_rel(lexer_t *L) {
 
 static expr_node_t *parse_shift(lexer_t *L) {
   expr_node_t *left = parse_add(L);
+  if (!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -598,7 +718,16 @@ static expr_node_t *parse_shift(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_add(L);
+    if(!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -609,6 +738,8 @@ static expr_node_t *parse_shift(lexer_t *L) {
 
 static expr_node_t *parse_add(lexer_t *L) {
   expr_node_t *left = parse_mul(L);
+  if (!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -623,7 +754,16 @@ static expr_node_t *parse_add(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_mul(L);
+    if (!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -634,6 +774,8 @@ static expr_node_t *parse_add(lexer_t *L) {
 
 static expr_node_t *parse_mul(lexer_t *L) {
   expr_node_t *left = parse_unary(L);
+  if (!left) return NULL;
+
   while (1) {
     int op = -1;
     switch (CUR(L)) {
@@ -651,7 +793,16 @@ static expr_node_t *parse_mul(lexer_t *L) {
       break;
     ADV(L);
     expr_node_t *right = parse_unary(L);
+    if (!right) {
+      expr_free(left);
+      return NULL;
+    }
     expr_node_t *n = node_new(NODE_BINARY);
+    if (!n) {
+      expr_free(right);
+      expr_free(left);
+      return NULL;
+    }
     n->binary.op = op;
     n->binary.left = left;
     n->binary.right = right;
@@ -664,25 +815,46 @@ static expr_node_t *parse_unary(lexer_t *L) {
 
   if (CUR(L) == T_NOT) {
     ADV(L);
+    expr_node_t *child = parse_unary(L);
+    if(!child) return NULL;
+
     expr_node_t *n = node_new(NODE_UNARY);
+    if(!n) {
+      expr_free( child );
+      return NULL;
+    }
     n->unary.op = UNARY_NOT;
-    n->unary.child = parse_unary(L);
+    n->unary.child = child;
     return n;
   }
 
   if (CUR(L) == T_TILDE) {
     ADV(L);
+    expr_node_t *child = parse_unary(L);
+    if(!child) return NULL;
+
     expr_node_t *n = node_new(NODE_UNARY);
+    if(!n) {
+      expr_free( child );
+      return NULL;
+    }
     n->unary.op = UNARY_BNOT;
-    n->unary.child = parse_unary(L);
+    n->unary.child = child;
     return n;
   }
 
   if (CUR(L) == T_MINUS) {
     ADV(L);
+    expr_node_t *child = parse_unary(L);
+    if(!child) return NULL;
+
     expr_node_t *n = node_new(NODE_UNARY);
+    if(!n) {
+      expr_free( child );
+      return NULL;
+    }
     n->unary.op = UNARY_NEG;
-    n->unary.child = parse_unary(L);
+    n->unary.child = child;
     return n;
   }
 
@@ -694,9 +866,16 @@ static expr_node_t *parse_unary(lexer_t *L) {
       ADV(L);
       if (CUR(L) == T_RPAREN) {
         ADV(L);
+        expr_node_t *child = parse_unary(L);
+        if(!child) return NULL;
+
         expr_node_t *n = node_new(NODE_CAST);
+        if(!n) {
+          expr_free(child);
+          return NULL;
+        }
         n->cast.ctype = ct;
-        n->cast.child = parse_unary(L);
+        n->cast.child = child;
         return n;
       }
     }
@@ -710,6 +889,8 @@ static expr_node_t *parse_primary(lexer_t *L) {
 
   if (CUR(L) == T_NUM_INT) {
     expr_node_t *n = node_new(NODE_LIT_INT);
+    if(!n) return NULL;
+
     n->lit_int = L->cur.ival;
     ADV(L);
     return n;
@@ -717,6 +898,8 @@ static expr_node_t *parse_primary(lexer_t *L) {
 
   if (CUR(L) == T_NUM_FLOAT) {
     expr_node_t *n = node_new(NODE_LIT_FLOAT);
+    if(!n) return NULL;
+
     n->lit_float = L->cur.fval;
     ADV(L);
     return n;
@@ -741,10 +924,10 @@ static expr_node_t *parse_primary(lexer_t *L) {
       }
 
       expr_node_t *idx = parse_expr(L);
+      if(!idx) return NULL;
 
       if (CUR(L) != T_RBRACK) {
-        fprintf(stderr,
-                "Внимание! Некорректное описание HR-регистра, ожидается ]\n");
+        fprintf(stderr, "Внимание! Некорректное описание HR-регистра, ожидается ]\n");
         expr_free(idx);
         return NULL;
       }
@@ -754,12 +937,12 @@ static expr_node_t *parse_primary(lexer_t *L) {
         int r = (int)idx->lit_int;
         expr_free(idx);
         if (r > 65535) {
-          fprintf(stderr,
-                  "Внимание! Номер регистра больше 65535, HR[reg>65535]\n");
+          fprintf(stderr, "Внимание! Номер регистра больше 65535, HR[reg>65535]\n");
           return NULL;
         }
 
         expr_node_t *n = node_new(NODE_REG_HR);
+        if (!n) return NULL;
         n->reg_idx = r;
         return n;
       }
@@ -772,19 +955,18 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       if (CUR(L) != T_LBRACK) {
-        fprintf(stderr,
-                "Внимание! Некорректное описание IR-регистра, ожидается [\n");
+        fprintf(stderr, "Внимание! Некорректное описание IR-регистра, ожидается [\n");
         return NULL;
       }
 
       ADV(L);
       if (CUR(L) == T_RBRACK) {
-        fprintf(stderr,
-                "Внимание! Некорректное описание IR-регистра, без номера\n");
+        fprintf(stderr, "Внимание! Некорректное описание IR-регистра, без номера\n");
         return NULL;
       }
 
       expr_node_t *idx = parse_expr(L);
+      if(!idx) return NULL;
 
       if (CUR(L) != T_RBRACK) {
         fprintf(stderr,
@@ -803,6 +985,7 @@ static expr_node_t *parse_primary(lexer_t *L) {
           return NULL;
         }
         expr_node_t *n = node_new(NODE_REG_IR);
+        if (!n) return NULL;
         n->reg_idx = r;
         return n;
       }
@@ -820,6 +1003,7 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *c = parse_expr(L);
+      if(!c) return NULL;
 
       if (CUR(L) != T_RPAREN) {
         expr_free(c);
@@ -829,6 +1013,10 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *n = node_new(NODE_FLOAT_CONVERT);
+      if (!n) {
+        expr_free(c);
+        return NULL;
+      }
       n->byteconvert.child = c;
 
       return n;
@@ -844,6 +1032,7 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *c = parse_expr(L);
+      if(!c) return NULL;
 
       if (CUR(L) != T_RPAREN) {
         expr_free(c);
@@ -853,6 +1042,10 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *n = node_new(NODE_DOUBLE_CONVERT);
+      if(!n) {
+        expr_free(c);
+        return NULL;
+      }
       n->byteconvert.child = c;
 
       return n;
@@ -869,6 +1062,7 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *child = parse_expr(L);
+      if(!child) return NULL;
 
       if (CUR(L) != T_RPAREN) {
         expr_free(child);
@@ -878,14 +1072,20 @@ static expr_node_t *parse_primary(lexer_t *L) {
       ADV(L);
 
       expr_node_t *n = node_new(NODE_FUNC);
+      if(!n) {
+        expr_free(child);
+        return NULL;
+      }
       n->func.fn = fn_id;
       n->func.child = child;
       return n;
     }
 
     expr_node_t *n = node_new(NODE_VAR);
-    strncpy(n->var_name, L->cur.ident, 63);
-    n->var_name[63] = '\0';
+    if(!n) return NULL;
+
+    snprintf( n->var_name, sizeof(n->var_name), "%s", L->cur.ident );
+
     ADV(L);
     return n;
   }
@@ -893,6 +1093,8 @@ static expr_node_t *parse_primary(lexer_t *L) {
   if (CUR(L) == T_LPAREN) {
     ADV(L);
     expr_node_t *n = parse_expr(L);
+    if(!n) return NULL;
+
     if (CUR(L) != T_RPAREN) {
       expr_free(n);
       return NULL;
@@ -956,9 +1158,7 @@ void expr_free(expr_node_t *n) {
   free(n);
 }
 
-/*============================================================================
- * Вычислитель
- *============================================================================*/
+/* Вычислитель */
 static expr_val_t val_int(int64_t i) {
   return (expr_val_t){.is_float = false, .i = i};
 }
@@ -1031,9 +1231,22 @@ static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
 
   } else if (fm->type == FTYPE_BITFIELD) {
 
-    uint32_t raw;
+    uint32_t  raw;
     memcpy(&raw, bytes + fm->offset, sizeof(uint32_t));
-    uint32_t mask = ((1u << fm->bit_width) - 1);
+
+    uint32_t  mask;
+    if (fm->bit_width>=32) {
+      mask = 0xFFFFFFFFu;
+    } else {
+      mask = (1u << fm->bit_width) - 1;
+    }
+
+    if( fm->bit_pos + fm->bit_width > 32 ) {
+      fprintf( stderr, "Выход за границы 32-битного поля bit_pos=%d, bit_width=%d\n",
+               fm->bit_pos, fm->bit_width );
+      return val_int(0);
+    }
+
     return val_int((raw >> fm->bit_pos) & mask);
   }
 
@@ -1172,18 +1385,30 @@ expr_val_t expr_eval(const expr_node_t *n, const uint16_t *HR_regs,
     case OP_MUL:
       return uf ? val_flt(to_flt(L) * to_flt(R)) : val_int(L.i * R.i);
     case OP_DIV:
+/*
       return uf ? val_flt(to_flt(L) / to_flt(R))
                 : (R.i ? val_int(L.i / R.i) : val_int(0));
+ */
+      if (uf) {
+        double divisor = to_flt(R);
+        if (divisor == 0.0) {
+          return val_flt(INFINITY);
+/*        return val_flt(0); */
+        }
+        return val_flt(to_flt(L) / divisor);
+      }
+      else {
+      }
     case OP_MOD:
-      return (R.i ? val_int(L.i % R.i) : val_int(0));
+      return (R.i != 0) ? val_int(L.i % R.i) : val_int(0);
     case OP_ADD:
       return uf ? val_flt(to_flt(L) + to_flt(R)) : val_int(L.i + R.i);
     case OP_SUB:
       return uf ? val_flt(to_flt(L) - to_flt(R)) : val_int(L.i - R.i);
     case OP_SHL:
-      return val_int(to_int(L) << to_int(R));
+      return val_int((int64_t)safe_shl(to_int(L), to_int(R)));
     case OP_SHR:
-      return val_int(to_int(L) >> to_int(R));
+      return val_int((int64_t)safe_shr(to_int(L), to_int(R)));
     case OP_AND:
       return val_int(to_int(L) & to_int(R));
     case OP_OR:
