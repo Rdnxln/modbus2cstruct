@@ -18,7 +18,7 @@ typedef enum {
   T_LPAREN,    /* ( */
   T_RPAREN,    /* ) */
   T_QUESTION,  /* ? */
-  T_COLON,     /* , */
+  T_COLON,     /* : */
   T_PLUS,      /* + */
   T_MINUS,     /* - */
   T_STAR,      /* * */
@@ -161,7 +161,8 @@ static void lex_number(lexer_t *L, token_t *t) {
 
     /* точку переносим в буфер */
     if (peek(L) == '.')
-      buf[i++] = advance(L);
+      if(i<62)
+        buf[i++] = advance(L);
 
     /* дробную часть переносим в буфер */
     while (isdigit((unsigned char)peek(L))) {
@@ -173,11 +174,13 @@ static void lex_number(lexer_t *L, token_t *t) {
 
     /* разбор для экспоненциального представления */
     if (peek(L) == 'e' || peek(L) == 'E') {
-      buf[i++] = advance(L); /* eE -> в буфер */
+      if(i<62)
+        buf[i++] = advance(L); /* eE -> в буфер */
 
       /* знак порядка, если есть - тоже в буфер */
       if (peek(L) == '+' || peek(L) == '-')
-        buf[i++] = advance(L);
+        if(i<62)
+          buf[i++] = advance(L);
       /* значение порядка */
       while (isdigit((unsigned char)peek(L)))
       {
@@ -186,7 +189,6 @@ static void lex_number(lexer_t *L, token_t *t) {
         else
           break;
       }
-
     }
   }
 
@@ -207,7 +209,7 @@ static void lex_ident(lexer_t *L, token_t *t) {
   int i = 0;
 
   while (isalnum((unsigned char)peek(L)) || peek(L) == '_') {
-    if (i < 63)
+    if (i < 62)
       t->ident[i++] = advance(L);
     else
       advance(L);
@@ -1253,12 +1255,16 @@ static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
   return val_int(0);
 }
 
-expr_val_t expr_eval(const expr_node_t *n, const uint16_t *HR_regs,
-                     size_t HR_reg_count, const uint16_t *IR_regs,
-                     size_t IR_reg_count, const expr_var_t *vars,
-                     size_t var_count, const void *struct_ptr,
+expr_val_t expr_eval(const expr_node_t *n,
+                     const uint16_t *HR_regs, size_t HR_reg_count,
+                     const uint16_t *IR_regs, size_t IR_reg_count,
+                     const expr_var_t *vars, size_t var_count,
+                     const void *struct_ptr,
                      const field_map_t *fmap, size_t fmap_size) {
   if (!n)
+    return val_int(0);
+
+  if(!HR_regs || !IR_regs || !vars || !struct_ptr || !fmap )
     return val_int(0);
 
   switch (n->kind) {
@@ -1392,13 +1398,26 @@ expr_val_t expr_eval(const expr_node_t *n, const uint16_t *HR_regs,
       if (uf) {
         double divisor = to_flt(R);
         if (divisor == 0.0) {
-          return val_flt(INFINITY);
-/*        return val_flt(0); */
+/*        return val_flt(INFINITY); */
+          fprintf( stderr, "Внимание, деление на 0.0\n" );
+          return val_flt(0);
         }
         return val_flt(to_flt(L) / divisor);
       }
       else {
+/*
+        int64_t divisor = R.i;
+        return (divisor != 0) ? val_int(L.i / divisor) : val_int(0);
+ */
+        int64_t divisor = R.i;
+        if (divisor == 0) {
+          fprintf( stderr, "Внимание, деление на 0\n" );
+          return val_int(0);
+        }
+        if (divisor == -1 && L.i == INT64_MIN) return val_int(INT64_MAX);
+        return val_int(L.i / divisor);
       }
+      break;
     case OP_MOD:
       return (R.i != 0) ? val_int(L.i % R.i) : val_int(0);
     case OP_ADD:
