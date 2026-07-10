@@ -233,7 +233,7 @@ static void lex_next(lexer_t *L) {
 
   /* Если число или точка */
   if (isdigit((unsigned char)c) || (c == '.' && isdigit((unsigned char)L->src[L->pos + 1]))) {
-    lex_number(L, &L->cur); // начинаем разбор числа
+    lex_number(L, &L->cur); /* начинаем разбор числа */
     return;
   }
 
@@ -1169,10 +1169,85 @@ static expr_val_t val_flt(double f) {
   return (expr_val_t){.is_float = true, .f = f};
 }
 
-/* конвертация double<-->int64 */
+/* конвертация double <--> int64 */
 static int64_t to_int(expr_val_t v) { return v.is_float ? (int64_t)v.f : v.i; }
 
 static double to_flt(expr_val_t v) { return v.is_float ? v.f : (double)v.i; }
+
+void read_bitfield(const void *struct_ptr, const field_map_t *fm, expr_val_t *result) {
+
+    const uint8_t *bytes = (const uint8_t *)struct_ptr;
+
+    /* Определяем размер по позиции битов */
+    int max_bit = fm->bit_pos + fm->bit_width;
+
+    /* Выбираем правильный тип на основе максимального бита */
+    if (max_bit <= 8) {
+        uint8_t raw;
+        memcpy(&raw, bytes + fm->offset, 1);
+        uint8_t mask = (fm->bit_width == 8) ? 0xFF : ((1u << fm->bit_width) - 1);
+        result->i = (raw >> fm->bit_pos) & mask;
+        result->is_float = false;
+    } else if (max_bit <= 16) {
+        uint16_t raw;
+        memcpy(&raw, bytes + fm->offset, 2);
+        uint16_t mask = (fm->bit_width == 16) ? 0xFFFF : ((1u << fm->bit_width) - 1);
+        result->i = (raw >> fm->bit_pos) & mask;
+        result->is_float = false;
+    } else if (max_bit <= 32) {
+        uint32_t raw;
+        memcpy(&raw, bytes + fm->offset, 4);
+        uint32_t mask = (fm->bit_width == 32) ? 0xFFFFFFFFu : ((1u << fm->bit_width) - 1);
+        result->i = (raw >> fm->bit_pos) & mask;
+        result->is_float = false;
+    } else if (max_bit <= 64) {
+        uint64_t raw;
+        memcpy(&raw, bytes + fm->offset, 8);
+        uint64_t mask = (fm->bit_width == 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << fm->bit_width) - 1);
+        result->i = (raw >> fm->bit_pos) & mask;
+        result->is_float = false;
+    } else {
+        fprintf( stderr, "Ошибка, битовое поле больше 64 бит\n" );
+        result->i = 0;
+        result->is_float = false;
+    }
+}
+
+void write_bitfield(void *struct_ptr, const field_map_t *fm, expr_val_t val) {
+    uint8_t *bytes = (uint8_t *)struct_ptr;
+    int max_bit = fm->bit_pos + fm->bit_width;
+    uint64_t value = (uint64_t)val.i;
+
+    if (max_bit <= 8) {
+        uint8_t raw;
+        memcpy(&raw, bytes + fm->offset, 1);
+        uint8_t mask = (fm->bit_width == 8) ? 0xFF : ((1u << fm->bit_width) - 1);
+        uint8_t new_bits = (value & mask) << fm->bit_pos;
+        raw = (raw & ~(mask << fm->bit_pos)) | new_bits;
+        memcpy(bytes + fm->offset, &raw, 1);
+    } else if (max_bit <= 16) {
+        uint16_t raw;
+        memcpy(&raw, bytes + fm->offset, 2);
+        uint16_t mask = (fm->bit_width == 16) ? 0xFFFF : ((1u << fm->bit_width) - 1);
+        uint16_t new_bits = (value & mask) << fm->bit_pos;
+        raw = (raw & ~(mask << fm->bit_pos)) | new_bits;
+        memcpy(bytes + fm->offset, &raw, 2);
+    } else if (max_bit <= 32) {
+        uint32_t raw;
+        memcpy(&raw, bytes + fm->offset, 4);
+        uint32_t mask = (fm->bit_width == 32) ? 0xFFFFFFFFu : ((1u << fm->bit_width) - 1);
+        uint32_t new_bits = (value & mask) << fm->bit_pos;
+        raw = (raw & ~(mask << fm->bit_pos)) | new_bits;
+        memcpy(bytes + fm->offset, &raw, 4);
+    } else if (max_bit <= 64) {
+        uint64_t raw;
+        memcpy(&raw, bytes + fm->offset, 8);
+        uint64_t mask = (fm->bit_width == 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << fm->bit_width) - 1);
+        uint64_t new_bits = (value & mask) << fm->bit_pos;
+        raw = (raw & ~(mask << fm->bit_pos)) | new_bits;
+        memcpy(bytes + fm->offset, &raw, 8);
+    }
+}
 
 /* чтение поля структуры/составного типа (AppStruct) */
 static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
@@ -1233,23 +1308,9 @@ static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
 
   } else if (fm->type == FTYPE_BITFIELD) {
 
-    uint32_t  raw;
-    memcpy(&raw, bytes + fm->offset, sizeof(uint32_t));
-
-    uint32_t  mask;
-    if (fm->bit_width>=32) {
-      mask = 0xFFFFFFFFu;
-    } else {
-      mask = (1u << fm->bit_width) - 1;
-    }
-
-    if( fm->bit_pos + fm->bit_width > 32 ) {
-      fprintf( stderr, "Выход за границы 32-битного поля bit_pos=%d, bit_width=%d\n",
-               fm->bit_pos, fm->bit_width );
-      return val_int(0);
-    }
-
-    return val_int((raw >> fm->bit_pos) & mask);
+    expr_val_t result;
+    read_bitfield(struct_ptr, fm, &result);
+    return result;
   }
 
   return val_int(0);
@@ -1286,13 +1347,13 @@ expr_val_t expr_eval(const expr_node_t *n,
                        : 0);
 
   case NODE_VAR: {
-    // 1. Вначале проверяем имя на соответствие внутренней переменной (у них
-    // преимущество)
+    /* 1. Вначале проверяем имя на соответствие внутренней переменной
+       (у них преимущество) */
     for (size_t i = 0; i < var_count; i++) { /* здесь бы соптимизировать */
       if (strcmp(vars[i].name, n->var_name) == 0)
         return vars[i].val;
     }
-    // 2. Если не найдено, проверим - это имя поля в структуре?
+    /* 2. Если не найдено, проверим - это имя поля в структуре? */
     if (struct_ptr && fmap) {
       for (size_t i = 0; i < fmap_size; i++) {
         if (strcmp(fmap[i].name, n->var_name) == 0) {

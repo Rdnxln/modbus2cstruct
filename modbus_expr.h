@@ -157,14 +157,10 @@ typedef struct expr_node {
     };
 } expr_node_t;
 
-/*
- * Разбор выражений, правил - составление Abstract Syntax Tree
- */
+/* Разбор выражений, правил - составление Abstract Syntax Tree */
 expr_node_t *expr_parse ( const char        *str );
 
-/*
- * Вычисление выражений
- */
+/* Вычисление выражений */
 expr_val_t   expr_eval  ( const expr_node_t *node,
                           const uint16_t    *HR_regs,
                           size_t             HR_reg_count,
@@ -176,9 +172,13 @@ expr_val_t   expr_eval  ( const expr_node_t *node,
                           const field_map_t *fmap,
                           size_t             fmap_size );
 
-/*
- * Освобождение структур
- */
+/* Освобождение структур */
 void         expr_free  ( expr_node_t       *node );
+
+/* чтение битовых полей */
+void         read_bitfield(  const void *struct_ptr, const field_map_t *fm, expr_val_t *result);
+
+/* запись битовых полей */
+void         write_bitfield( void       *struct_ptr, const field_map_t *fm, expr_val_t  val   );
 
 #endif

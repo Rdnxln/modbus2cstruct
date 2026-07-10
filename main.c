@@ -149,13 +149,7 @@ static void write_field(void *struct_ptr, const field_map_t *fm,
     uint8_t v = (uint8_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint8_t));
   } else if (fm->type == FTYPE_BITFIELD) {
-    uint32_t raw;
-    memcpy(&raw, bytes + fm->offset, sizeof(uint32_t));
-    uint32_t mask = ((1u << fm->bit_width) - 1) << fm->bit_pos;
-    uint32_t new_bits = ((uint32_t)val.i & ((1u << fm->bit_width) - 1))
-                        << fm->bit_pos;
-    raw = (raw & ~mask) | new_bits;
-    memcpy(bytes + fm->offset, &raw, sizeof(uint32_t));
+    write_bitfield(struct_ptr, fm, val);
   }
 }
 
@@ -268,9 +262,15 @@ static int load_config(const char *filename) {
     } else {
       /* Если не найдено, оно должно быть внутренней переменной */
       rules[rule_count].type = RULE_VAR;
-      strncpy(rules[rule_count].var_name, field, 63);
-      rules[rule_count].var_name[63] = '\0';
-
+      if(strlen(field)<64) {
+        strncpy(rules[rule_count].var_name, field, 63);
+      } else {
+        fprintf(stderr,
+                "Имя переменной '%s' превышает ограничение\n", field );
+        expr_free(ast);
+        ast = NULL;
+        continue;
+      }
       /* Это новая переменная ? */
       bool found = false;
       for (int i = 0; i < runtime_var_count; i++) {
@@ -489,11 +489,11 @@ void build_requests(  modbus_request_t *HR_rq,
  */
 void build_requests() {
   /* Карта упомянутых в правилах регистров, для составления плана запросов */
-  uint16_t *req_HR_regs = NULL;
-  uint16_t *req_IR_regs = NULL;
-
   int count_HR_regs = 0;
   int count_IR_regs = 0;
+
+  uint16_t *req_HR_regs = NULL;
+  uint16_t *req_IR_regs = NULL;
 
   req_HR_regs = (uint16_t *)calloc(0x10000, sizeof(uint16_t));
   if (!req_HR_regs)
@@ -594,8 +594,7 @@ int main(int argc, char *argv[]) {
   print_struct(&my_device);
   printf("\n");
 
-  int extc = 1;
-  while (extc--) {
+  do {
 
     printf("Загрузка конфигурации с правилами: %s\n", cfg_file);
     if (load_config(cfg_file) != 0) {
@@ -645,6 +644,7 @@ int main(int argc, char *argv[]) {
 
     free_rules();
   }
+  while(0);
 
   /* Закрытие соединения */
   modbus_close(ctx);
