@@ -9,6 +9,9 @@
 #include <time.h>
 #include <unistd.h>
 
+static uint16_t modbus_HR_registers[65536];
+static uint16_t modbus_IR_registers[65536];
+
 /* Максимальное количество регистров в карте: 65536 (0x10000 )
    4.4      https://modbus.org/file/secure/modbusprotocolspecification.pdf
 
@@ -17,11 +20,11 @@
 
    Максимальное число запросов для всей карты:  525 ( = 65536 / 125 )
    (без повторного опроса) */
-modbus_request_t HR_requests[525];
-int count_HR_rq = 0;
+static modbus_request_t HR_requests[525];
+static int count_HR_rq = 0;
 
-modbus_request_t IR_requests[525];
-int count_IR_rq = 0;
+static modbus_request_t IR_requests[525];
+static int count_IR_rq = 0;
 /* TODO:
 modbus_request_t CL_requests[ 525 ];
 modbus_request_t DI_requests[ 525 ]; */
@@ -29,67 +32,73 @@ modbus_request_t DI_requests[ 525 ]; */
 /* Целевой тип данных приложения "AppStruct",
    в который необходимо преобразовать исходные данные */
 typedef struct {
-  float         lo_value;
-  float         hi_value;
-  double        dp_value;
-  long long     big_param;
-  short         parameter2;
-  int           parameter3;
-  time_t        now;
-  unsigned char mode;
-  struct __attribute__((packed)) {
-    unsigned char A1 : 1;
-    unsigned char A2 : 1;
-    unsigned char A3 : 1;
-    unsigned char A4 : 1;
-    unsigned char A5 : 1;
-    unsigned char A6 : 1;
-    unsigned char A7 : 1;
-    unsigned char A8 : 1;
-
-    unsigned char B1 : 3;
-    unsigned char B2 : 4;
-    unsigned char B3 : 1;
-  } state;
-} AppStruct;
+  float      Value; /* значение величины */
+  uint16_t   Code;  /* код единиц измерения величины */
+  struct {
+    uint8_t  A1: 1; /* признак 1  */
+    uint8_t  A2: 1; /* признак 2   */
+    uint8_t  A3: 1; /* признак 3   */
+    uint8_t  A4: 4; /* признак 4   */
+    uint8_t    : 1; /* резерв      */
+    uint8_t  B1: 2; /* признак N-1 */
+    uint8_t  B2: 6; /* признак N   */
+  } state ;
+  uint64_t   SourceTime;
+} AppStruct ;
 
 /* Карта полей структуры "AppStruct" для механизма поиска (mapping-соответствие) */
 static const field_map_t field_map[] = {
-    /* Имя поля (можно указывать альтернативные имена-синонимы) */
-    {"lo_value",
+    /* Имя поля (можно указывать несколько псевдонимов) */
+    {"Value",
      /* Смещение в структуре (в байтах) */
-     offsetof(AppStruct, lo_value),
+                        offsetof(AppStruct, Value),                     /* Это все одно поле (AppStruct*).Value */
      /* Тип поля */
-     FTYPE_FLOAT,
+                                                    FTYPE_FLOAT,
      /* Номер бита, количество (ширина поля) в битах */
-     0, 0},
-    {"AppStruct.lo_value", offsetof(AppStruct, lo_value), FTYPE_FLOAT, 0, 0},
-    {"synonym", offsetof(AppStruct, lo_value), FTYPE_FLOAT, 0, 0},
+                                                                 0, 0},
+    {"AppStruct.Value", offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0}, /* Это все одно поле (AppStruct*).Value */
+    {"V",               offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0}, /* Это все одно поле (AppStruct*).Value */
     /* ^^ имена на одно и то же поле */
 
-    {"hi_value", offsetof(AppStruct, hi_value), FTYPE_FLOAT, 0, 0},
-    {"dp_value", offsetof(AppStruct, dp_value), FTYPE_DOUBLE, 0, 0},
-    {"big_param", offsetof(AppStruct, big_param), FTYPE_INT64, 0, 0},
-    {"parameter2", offsetof(AppStruct, parameter2), FTYPE_INT16, 0, 0},
-    {"parameter3", offsetof(AppStruct, parameter3), FTYPE_INT32, 0, 0},
-    {"now", offsetof(AppStruct, now), FTYPE_INT64, 0, 0},
-    {"mode", offsetof(AppStruct, mode), FTYPE_UINT8, 0, 0},
+    {"Code", offsetof(AppStruct, Code), FTYPE_UINT16, 0, 0},
+    {"SourceTime", offsetof(AppStruct, SourceTime), FTYPE_UINT64, 0, 0},
 
     /* Битовые поля */
-    {"state.A1", offsetof(AppStruct, state), FTYPE_BITFIELD, 0, 1},
-    {"state.A2", offsetof(AppStruct, state), FTYPE_BITFIELD, 1, 1},
-    {"state.A3", offsetof(AppStruct, state), FTYPE_BITFIELD, 2, 1},
-    {"state.A4", offsetof(AppStruct, state), FTYPE_BITFIELD, 3, 1},
-    {"state.A5", offsetof(AppStruct, state), FTYPE_BITFIELD, 4, 1},
-    {"state.A6", offsetof(AppStruct, state), FTYPE_BITFIELD, 5, 1},
-    {"state.A7", offsetof(AppStruct, state), FTYPE_BITFIELD, 6, 1},
-    {"state.A8", offsetof(AppStruct, state), FTYPE_BITFIELD, 7, 1},
-
-    {"state.B1", offsetof(AppStruct, state), FTYPE_BITFIELD, 8, 3},
-    {"state.B2", offsetof(AppStruct, state), FTYPE_BITFIELD, 11, 4},
-    {"state.B3", offsetof(AppStruct, state), FTYPE_BITFIELD, 15, 1},
+    {"state.A1", offsetof(AppStruct, state), FTYPE_BITFIELD, 0,  1},
+    {"state.A2", offsetof(AppStruct, state), FTYPE_BITFIELD, 1,  1},
+    {"state.A3", offsetof(AppStruct, state), FTYPE_BITFIELD, 2,  1},
+    {"state.A4", offsetof(AppStruct, state), FTYPE_BITFIELD, 3,  4},
+    {"state.B1", offsetof(AppStruct, state), FTYPE_BITFIELD, 8,  2},
+    {"state.B2", offsetof(AppStruct, state), FTYPE_BITFIELD, 10, 6},
 };
 #define FIELD_MAP_SIZE (sizeof(field_map) / sizeof(field_map[0]))
+
+
+/* Использование данных */
+void print_struct(const AppStruct *d) {
+  printf("Value: %g\n", d->Value);
+  printf("Code: %hd\n", d->Code);
+
+  printf("state.A1: %d\n", d->state.A1);
+  printf("state.A2: %d\n", d->state.A2);
+  printf("state.A3: %d\n", d->state.A3);
+
+  printf("state.B1: %d\n", d->state.B1);
+  printf("state.B2: %d\n", d->state.B2);
+
+  printf("SourceTime: %" PRId64 "\n", d->SourceTime);
+}
+
+void print_vars(const expr_var_t *vars, size_t var_count) {
+  for (size_t i = 0; i < var_count; i++) {
+    if (vars[i].val.is_float)
+      printf("Var (вещ.) %s: %g\n", vars[i].name, vars[i].val.f);
+    else
+      printf("Var (цел.) %s: %" PRId64 "\n", vars[i].name, vars[i].val.i);
+  }
+}
+
+
 
 /* Вычисляемое выражение */
 /* ТИП РЕЗУЛЬТАТА для выражения */
@@ -355,41 +364,6 @@ void update_struct(AppStruct *data, const uint16_t *HR_regs,
     }
   }
 }
-
-/* Отладка */
-void print_struct(const AppStruct *d) {
-  printf("lo_value: %g\n", d->lo_value);
-  printf("hi_value: %g\n", d->hi_value);
-  printf("dp_value: %g\n", d->dp_value);
-  printf("big_param: %lli\n", d->big_param);
-  printf("parameter2: %" PRId16 "\n", d->parameter2);
-  printf("parameter3: %d\n", d->parameter3);
-  printf("now: %" PRId64 "\n", d->now);
-  printf("mode: %d\n", (int)d->mode);
-
-  printf("state.A1: %d\n", d->state.A1);
-  printf("state.A2: %d\n", d->state.A2);
-  printf("state.A3: %d\n", d->state.A3);
-  printf("state.A4: %d\n", d->state.A4);
-  printf("state.A5: %d\n", d->state.A5);
-  printf("state.A6: %d\n", d->state.A6);
-  printf("state.A7: %d\n", d->state.A7);
-  printf("state.A8: %d\n", d->state.A8);
-
-  printf("state.B1: %d\n", d->state.B1);
-  printf("state.B2: %d\n", d->state.B2);
-  printf("state.B3: %d\n", d->state.B3);
-}
-
-void print_vars(const expr_var_t *vars, size_t var_count) {
-  for (size_t i = 0; i < var_count; i++) {
-    if (vars[i].val.is_float)
-      printf("Var (вещ.) %s: %g\n", vars[i].name, vars[i].val.f);
-    else
-      printf("Var (цел.) %s: %" PRId64 "\n", vars[i].name, vars[i].val.i);
-  }
-}
-
 void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
                uint16_t *req_IR_regs, int *count_IR_regs) {
   if (!n)
@@ -554,10 +528,10 @@ int main(int argc, char *argv[]) {
 
   const char *cfg_file = (argc > 1) ? argv[1] : "testconfig.cfg";
 
-  uint16_t modbus_HR_registers[65536];
+//  uint16_t modbus_HR_registers[65536];
   memset(modbus_HR_registers, 0, sizeof(modbus_HR_registers));
 
-  uint16_t modbus_IR_registers[65536];
+//  uint16_t modbus_IR_registers[65536];
   memset(modbus_IR_registers, 0, sizeof(modbus_IR_registers));
 
   modbus_t *ctx;
