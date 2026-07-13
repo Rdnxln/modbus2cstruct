@@ -43,11 +43,11 @@ You can define mapping array for your structure AppStruct:
 static const field_map_t field_map[] = {
     /* Field name */
     {"Value",
-     /* Byte offset for field in application struct */
+    /* Byte offset for field in application struct */
                         offsetof(AppStruct, Value),
-     /* Type of field */
+    /* Type of field */
                                                     FTYPE_FLOAT,
-     /* For bit or bit-field: number of bit, bit width */
+    /* Number of bit and Bit width (used only for bit or bit-field) */
                                                                  0, 0},
     {"AppStruct.Value", offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0},
     {"V",               offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0},
@@ -81,4 +81,4 @@ VAR2 = cos(tempVAR)
 AppStruct.SourceTime = IR[301] | ( IR[300]<<16 )
 ```
 
-TODO: describe
+TODO: finish this description
