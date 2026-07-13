@@ -1251,6 +1251,7 @@ void write_bitfield(void *struct_ptr, const field_map_t *fm, expr_val_t val) {
 
 /* чтение поля структуры/составного типа (AppStruct) */
 static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
+
   const uint8_t *bytes = (const uint8_t *)struct_ptr;
 
   if (fm->type == FTYPE_FLOAT) {
@@ -1316,6 +1317,7 @@ static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
   return val_int(0);
 }
 
+/* рекурсивное вычисление узлов выражения */
 expr_val_t expr_eval(const expr_node_t *n,
                      const uint16_t *HR_regs, size_t HR_reg_count,
                      const uint16_t *IR_regs, size_t IR_reg_count,
@@ -1330,251 +1332,265 @@ expr_val_t expr_eval(const expr_node_t *n,
 
   switch (n->kind) {
 
-  case NODE_LIT_INT:
-    return val_int(n->lit_int);
+    case NODE_LIT_INT:
+      return val_int(n->lit_int);
 
-  case NODE_LIT_FLOAT:
-    return val_flt(n->lit_float);
+    case NODE_LIT_FLOAT:
+      return val_flt(n->lit_float);
 
-  case NODE_REG_HR:
-    return val_int((n->reg_idx >= 0 && (size_t)n->reg_idx < HR_reg_count)
-                       ? HR_regs[n->reg_idx]
-                       : 0);
+    case NODE_REG_HR:
+      return val_int((n->reg_idx >= 0 && (size_t)n->reg_idx < HR_reg_count)
+                      ? HR_regs[n->reg_idx]
+                      : 0);
 
-  case NODE_REG_IR:
-    return val_int((n->reg_idx >= 0 && (size_t)n->reg_idx < IR_reg_count)
-                       ? IR_regs[n->reg_idx]
-                       : 0);
+    case NODE_REG_IR:
+      return val_int((n->reg_idx >= 0 && (size_t)n->reg_idx < IR_reg_count)
+                      ? IR_regs[n->reg_idx]
+                      : 0);
 
-  case NODE_VAR: {
-    /* 1. Вначале проверяем имя на соответствие внутренней переменной
-       (у них преимущество) */
-    for (size_t i = 0; i < var_count; i++) { /* здесь бы соптимизировать */
-      if (strcmp(vars[i].name, n->var_name) == 0)
-        return vars[i].val;
-    }
-    /* 2. Если не найдено, проверим - это имя поля в структуре? */
-    if (struct_ptr && fmap) {
-      for (size_t i = 0; i < fmap_size; i++) {
-        if (strcmp(fmap[i].name, n->var_name) == 0) {
-          return read_field(struct_ptr, &fmap[i]);
+    /* Переменная - внутренняя переменная или поле из структуры */
+    case NODE_VAR: {
+      /* 1. Вначале проверяем имя на соответствие
+         внутренней переменной (у них преимущество) */
+      for (size_t i = 0; i < var_count; i++) { /* здесь бы соптимизировать */
+        if (strcmp(vars[i].name, n->var_name) == 0)
+          return vars[i].val;
+      }
+      /* 2. Если не найдено, проверим - это имя поля в структуре? */
+      if (struct_ptr && fmap) {
+        for (size_t i = 0; i < fmap_size; i++) {
+          if (strcmp(fmap[i].name, n->var_name) == 0) {
+            return read_field(struct_ptr, &fmap[i]);
+          }
         }
       }
+      return val_int(0);
     }
-    return val_int(0);
-  }
 
-  /* если это имя функции */
-  case NODE_FUNC: {
-    /* вычисляем аргумент у функции - рекурсивный спуск */
-    expr_val_t c =
-        expr_eval(n->func.child, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
-                  vars, var_count, struct_ptr, fmap, fmap_size);
-    /* аргумент функции */
-    double arg = to_flt(c);
-    /* результат вычисления функции */
-    double res = 0.0;
+    /* если это имя функции */
+    case NODE_FUNC: {
+      /* вычисляем аргумент у функции - рекурсивный спуск */
+      expr_val_t c = expr_eval(n->func.child, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
+                               vars, var_count, struct_ptr, fmap, fmap_size);
+      /* аргумент функции */
+      double arg = to_flt(c);
+      /* результат вычисления функции */
+      double res = 0.0;
 
-    switch (n->func.fn) {
-    case FN_SIN:
-      res = sin(arg);
-      break;
-    case FN_COS:
-      res = cos(arg);
-      break;
-    case FN_TAN:
-      res = tan(arg);
-      break;
-    case FN_ASIN:
-      res = asin(arg);
-      break;
-    case FN_ACOS:
-      res = acos(arg);
-      break;
-    case FN_ATAN:
-      res = atan(arg);
-      break;
-    case FN_SQRT:
-      res = sqrt(arg);
-      break;
-    case FN_LN:
-      res = log(arg);
-      break;
-    case FN_LOG10:
-      res = log10(arg);
-      break;
-    case FN_ABS:
-      res = fabs(arg);
-      break;
-    case FN_FLOOR:
-      res = floor(arg);
-      break;
-    case FN_CEIL:
-      res = ceil(arg);
-      break;
-    case FN_UNIXTIME:
-      return val_int(time(NULL) + to_int(c));
-      break;
+      switch (n->func.fn) {
+        case FN_SIN:
+          res = sin(arg);
+          break;
+        case FN_COS:
+          res = cos(arg);
+          break;
+        case FN_TAN:
+          res = tan(arg);
+          break;
+        case FN_ASIN:
+          res = asin(arg);
+          break;
+        case FN_ACOS:
+          res = acos(arg);
+          break;
+        case FN_ATAN:
+          res = atan(arg);
+          break;
+        case FN_SQRT:
+          res = sqrt(arg);
+          break;
+        case FN_LN:
+          res = log(arg);
+          break;
+        case FN_LOG10:
+          res = log10(arg);
+          break;
+        case FN_ABS:
+          res = fabs(arg);
+          break;
+        case FN_FLOOR:
+          res = floor(arg);
+          break;
+        case FN_CEIL:
+          res = ceil(arg);
+          break;
+        case FN_UNIXTIME:
+          return val_int(time(NULL) + to_int(c));
+          break;
+      }
+      return val_flt(res);
     }
-    return val_flt(res);
-  }
 
-  /* ОПЕРАЦИЯ ОДНОГО АРГУМЕНТА */
-  case NODE_UNARY: {
-    /* вычисление аргумента унарной операции */
-    expr_val_t c =
+    /* операция одного аргумента */
+    case NODE_UNARY: {
+      /* вычисление аргумента унарной операции */
+      expr_val_t c =
         expr_eval(n->unary.child, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
                   vars, var_count, struct_ptr, fmap, fmap_size);
-    switch (n->unary.op) {
-    case UNARY_NOT:
-      return val_int(!to_int(c));
-    case UNARY_BNOT:
-      return val_int(~to_int(c));
-    case UNARY_NEG:
-      return c.is_float ? val_flt(-c.f) : val_int(-c.i);
-    }
-    return c;
-  }
-
-  /* ОПЕРАЦИЯ ДВУХ АРГУМЕНТОВ */
-  case NODE_BINARY: {
-    /* вычисляем левый аргумент */
-    expr_val_t L =
-        expr_eval(n->binary.left, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
-                  vars, var_count, struct_ptr, fmap, fmap_size);
-    /* вычисляем правый аргумент */
-    expr_val_t R =
-        expr_eval(n->binary.right, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
-                  vars, var_count, struct_ptr, fmap, fmap_size);
-    /* если один из аргументов вещественный - то результат тоже */
-    bool uf = L.is_float || R.is_float;
-    switch (n->binary.op) {
-    case OP_MUL:
-      return uf ? val_flt(to_flt(L) * to_flt(R)) : val_int(L.i * R.i);
-    case OP_DIV:
-/*
-      return uf ? val_flt(to_flt(L) / to_flt(R))
-                : (R.i ? val_int(L.i / R.i) : val_int(0));
- */
-      if (uf) {
-        double divisor = to_flt(R);
-        if (divisor == 0.0) {
-/*        return val_flt(INFINITY); */
-          fprintf( stderr, "Внимание, деление на 0.0\n" );
-          return val_flt(0);
-        }
-        return val_flt(to_flt(L) / divisor);
+      switch (n->unary.op) {
+        case UNARY_NOT:
+          return val_int(!to_int(c));
+        case UNARY_BNOT:
+          return val_int(~to_int(c));
+        case UNARY_NEG:
+          return c.is_float ? val_flt(-c.f) : val_int(-c.i);
       }
-      else {
-/*
-        int64_t divisor = R.i;
-        return (divisor != 0) ? val_int(L.i / divisor) : val_int(0);
- */
-        int64_t divisor = R.i;
-        if (divisor == 0) {
-          fprintf( stderr, "Внимание, деление на 0\n" );
-          return val_int(0);
-        }
-        if (divisor == -1 && L.i == INT64_MIN) return val_int(INT64_MAX);
-        return val_int(L.i / divisor);
-      }
-      break;
-    case OP_MOD:
-      return (R.i != 0) ? val_int(L.i % R.i) : val_int(0);
-    case OP_ADD:
-      return uf ? val_flt(to_flt(L) + to_flt(R)) : val_int(L.i + R.i);
-    case OP_SUB:
-      return uf ? val_flt(to_flt(L) - to_flt(R)) : val_int(L.i - R.i);
-    case OP_SHL:
-      return val_int((int64_t)safe_shl(to_int(L), to_int(R)));
-    case OP_SHR:
-      return val_int((int64_t)safe_shr(to_int(L), to_int(R)));
-    case OP_AND:
-      return val_int(to_int(L) & to_int(R));
-    case OP_OR:
-      return val_int(to_int(L) | to_int(R));
-    case OP_XOR:
-      return val_int(to_int(L) ^ to_int(R));
-    case OP_LT:
-      return val_int(uf ? (to_flt(L) < to_flt(R)) : (L.i < R.i));
-    case OP_GT:
-      return val_int(uf ? (to_flt(L) > to_flt(R)) : (L.i > R.i));
-    case OP_EQ:
-      return val_int(uf ? (to_flt(L) == to_flt(R)) : (L.i == R.i));
-    case OP_NE:
-      return val_int(uf ? (to_flt(L) != to_flt(R)) : (L.i != R.i));
-    case OP_LE:
-      return val_int(uf ? (to_flt(L) <= to_flt(R)) : (L.i <= R.i));
-    case OP_GE:
-      return val_int(uf ? (to_flt(L) >= to_flt(R)) : (L.i >= R.i));
-    case OP_LAND:
-      return val_int(to_int(L) && to_int(R));
-    case OP_LOR:
-      return val_int(to_int(L) || to_int(R));
-    }
-    return val_int(0);
-  }
-
-  /* ТЕРНАРНАЯ ОПЕРАЦИЯ */
-  case NODE_TERNARY:
-    return to_int(expr_eval(n->ternary.cond, HR_regs, HR_reg_count, IR_regs,
-                            IR_reg_count, vars, var_count, struct_ptr, fmap,
-                            fmap_size))
-               ? expr_eval(n->ternary.yes, HR_regs, HR_reg_count, IR_regs,
-                           IR_reg_count, vars, var_count, struct_ptr, fmap,
-                           fmap_size)
-               : expr_eval(n->ternary.no, HR_regs, HR_reg_count, IR_regs,
-                           IR_reg_count, vars, var_count, struct_ptr, fmap,
-                           fmap_size);
-
-  case NODE_CAST: {
-    expr_val_t c =
-        expr_eval(n->cast.child, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
-                  vars, var_count, struct_ptr, fmap, fmap_size);
-    int64_t r = to_int(c);
-    switch (n->cast.ctype) {
-    case CAST_FLOAT:
-      return val_flt((float)r);
-    case CAST_DOUBLE:
-      return val_flt((double)r);
-    case CAST_INT8:
-      return val_int((int8_t)r);
-    case CAST_UINT8:
-      return val_int((uint8_t)r);
-    case CAST_INT16:
-      return val_int((int16_t)r);
-    case CAST_UINT16:
-      return val_int((uint16_t)r);
-    case CAST_INT32:
-      return val_int((int32_t)r);
-    case CAST_UINT32:
-      return val_int((uint32_t)r);
-    default:
       return c;
     }
-  }
 
-  case NODE_FLOAT_CONVERT: {
-    expr_val_t c =
+    /* операция двух аргументов */
+    case NODE_BINARY: {
+      /* вычисляем левый аргумент */
+      expr_val_t L =
+        expr_eval(n->binary.left, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
+                  vars, var_count, struct_ptr, fmap, fmap_size);
+      /* вычисляем правый аргумент */
+      expr_val_t R =
+        expr_eval(n->binary.right, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
+                  vars, var_count, struct_ptr, fmap, fmap_size);
+      /* если один из аргументов вещественный - то результат тоже */
+      bool uf = L.is_float || R.is_float;
+      switch (n->binary.op) {
+        case OP_MUL:
+          return uf ? val_flt(to_flt(L) * to_flt(R)) : val_int(L.i * R.i);
+          break;
+        case OP_DIV:
+          if (uf) {
+            double divisor = to_flt(R);
+            if (divisor == 0.0) {
+/*            return val_flt(INFINITY); */
+              fprintf( stderr, "Внимание, деление на 0.0\n" );
+              return val_flt(0);
+            }
+            return val_flt(to_flt(L) / divisor);
+          }
+          else {
+            int64_t divisor = R.i;
+            if (divisor == 0) {
+              fprintf( stderr, "Внимание, деление на 0\n" );
+              return val_int(0);
+            }
+            if (divisor == -1 && L.i == INT64_MIN) return val_int(INT64_MAX);
+              return val_int(L.i / divisor);
+          }
+          break;
+        case OP_MOD:
+          return (R.i != 0) ? val_int(L.i % R.i) : val_int(0);
+          break;
+        case OP_ADD:
+          return uf ? val_flt(to_flt(L) + to_flt(R)) : val_int(L.i + R.i);
+          break;
+        case OP_SUB:
+          return uf ? val_flt(to_flt(L) - to_flt(R)) : val_int(L.i - R.i);
+          break;
+        case OP_SHL:
+          return val_int((int64_t)safe_shl(to_int(L), to_int(R)));
+          break;
+        case OP_SHR:
+          return val_int((int64_t)safe_shr(to_int(L), to_int(R)));
+          break;
+        case OP_AND:
+          return val_int(to_int(L) & to_int(R));
+          break;
+        case OP_OR:
+          return val_int(to_int(L) | to_int(R));
+          break;
+        case OP_XOR:
+          return val_int(to_int(L) ^ to_int(R));
+          break;
+        case OP_LT:
+          return val_int(uf ? (to_flt(L) < to_flt(R)) : (L.i < R.i));
+          break;
+        case OP_GT:
+          return val_int(uf ? (to_flt(L) > to_flt(R)) : (L.i > R.i));
+          break;
+        case OP_EQ:
+          return val_int(uf ? (to_flt(L) == to_flt(R)) : (L.i == R.i));
+          break;
+        case OP_NE:
+          return val_int(uf ? (to_flt(L) != to_flt(R)) : (L.i != R.i));
+          break;
+        case OP_LE:
+          return val_int(uf ? (to_flt(L) <= to_flt(R)) : (L.i <= R.i));
+          break;
+        case OP_GE:
+          return val_int(uf ? (to_flt(L) >= to_flt(R)) : (L.i >= R.i));
+          break;
+        case OP_LAND:
+          return val_int(to_int(L) && to_int(R));
+          break;
+        case OP_LOR:
+          return val_int(to_int(L) || to_int(R));
+          break;
+      }
+      return val_int(0);
+    }
+
+    /* тернарная операция */
+    case NODE_TERNARY:
+      return to_int( expr_eval(n->ternary.cond, HR_regs, HR_reg_count, IR_regs,
+                               IR_reg_count, vars, var_count, struct_ptr, fmap,
+                               fmap_size))
+                   ? expr_eval(n->ternary.yes, HR_regs, HR_reg_count, IR_regs,
+                               IR_reg_count, vars, var_count, struct_ptr, fmap,
+                               fmap_size)
+                   : expr_eval(n->ternary.no, HR_regs, HR_reg_count, IR_regs,
+                               IR_reg_count, vars, var_count, struct_ptr, fmap,
+                               fmap_size);
+      break;
+    case NODE_CAST: {
+      expr_val_t c = expr_eval(n->cast.child, HR_regs, HR_reg_count, IR_regs, IR_reg_count,
+                               vars, var_count, struct_ptr, fmap, fmap_size);
+      int64_t r = to_int(c);
+      switch (n->cast.ctype) {
+        case CAST_FLOAT: {
+          if( c.is_float )
+            return val_flt((float)c.f);
+          return val_flt((float)r);
+        }
+        case CAST_DOUBLE: {
+          if( c.is_float )
+            return val_flt((float)c.f);
+          return val_flt((double)r);
+        }
+        case CAST_INT8:
+          return val_int((int8_t)r);
+        case CAST_UINT8:
+          return val_int((uint8_t)r);
+        case CAST_INT16:
+          return val_int((int16_t)r);
+        case CAST_UINT16:
+          return val_int((uint16_t)r);
+        case CAST_INT32:
+          return val_int((int32_t)r);
+        case CAST_UINT32:
+          return val_int((uint32_t)r);
+        default:
+          return c;
+      }
+    }
+
+    case NODE_FLOAT_CONVERT: {
+      expr_val_t c =
         expr_eval(n->byteconvert.child, HR_regs, HR_reg_count, IR_regs,
                   IR_reg_count, vars, var_count, struct_ptr, fmap, fmap_size);
-    uint32_t bits = (uint32_t)to_int(c);
-    float f;
-    memcpy(&f, &bits, 4);
-    return val_flt(f);
-  }
+      uint32_t bits = (uint32_t)to_int(c);
+      float f;
+      memcpy(&f, &bits, 4);
+      return val_flt(f);
+    }
 
-  case NODE_DOUBLE_CONVERT: {
-    expr_val_t c =
+    case NODE_DOUBLE_CONVERT: {
+      expr_val_t c =
         expr_eval(n->byteconvert.child, HR_regs, HR_reg_count, IR_regs,
                   IR_reg_count, vars, var_count, struct_ptr, fmap, fmap_size);
-    uint64_t bits = (uint64_t)to_int(c);
-    double d;
-    memcpy(&d, &bits, 8);
-    return val_flt(d);
-  }
+      uint64_t bits = (uint64_t)to_int(c);
+      double d;
+      memcpy(&d, &bits, 8);
+      return val_flt(d);
+    }
 
-  default:
-    return val_int(0);
+    default:
+      return val_int(0);
   }
 }

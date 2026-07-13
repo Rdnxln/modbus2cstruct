@@ -3,4 +3,4 @@
 # Запуск
 
 LD_LIBRARY_PATH=./local_usr/lib \
-  ./solution
+  ./solution ./testconfig.cfg

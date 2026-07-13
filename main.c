@@ -73,8 +73,7 @@ static const field_map_t field_map[] = {
 };
 #define FIELD_MAP_SIZE (sizeof(field_map) / sizeof(field_map[0]))
 
-
-/* Использование данных */
+/* Печать полей структуры */
 void print_struct(const AppStruct *d) {
   printf("Value: %g\n", d->Value);
   printf("Code: %hd\n", d->Code);
@@ -82,6 +81,7 @@ void print_struct(const AppStruct *d) {
   printf("state.A1: %d\n", d->state.A1);
   printf("state.A2: %d\n", d->state.A2);
   printf("state.A3: %d\n", d->state.A3);
+  printf("state.A4: %d\n", d->state.A4);
 
   printf("state.B1: %d\n", d->state.B1);
   printf("state.B2: %d\n", d->state.B2);
@@ -89,6 +89,7 @@ void print_struct(const AppStruct *d) {
   printf("SourceTime: %" PRId64 "\n", d->SourceTime);
 }
 
+/* Печать внутренних переменных */
 void print_vars(const expr_var_t *vars, size_t var_count) {
   for (size_t i = 0; i < var_count; i++) {
     if (vars[i].val.is_float)
@@ -98,13 +99,11 @@ void print_vars(const expr_var_t *vars, size_t var_count) {
   }
 }
 
-
-
 /* Вычисляемое выражение */
-/* ТИП РЕЗУЛЬТАТА для выражения */
+/* Тип результата для выражения: */
 typedef enum {
   RULE_FIELD, /* это результат для целевой структы */
-  RULE_VAR /* это результат для внутренней переменной */
+  RULE_VAR    /* это результат для внутренней переменной */
 } rule_type_t;
 
 typedef struct {
@@ -183,6 +182,7 @@ static void write_field(void *struct_ptr, const field_map_t *fm,
         Modbus-регистр (HR[20])
         Переменная
         ( Выражение )
+        AppStruct.Поле (в разработке)
  */
 static int load_config(const char *filename) {
   int line_count = 0;
@@ -364,6 +364,7 @@ void update_struct(AppStruct *data, const uint16_t *HR_regs,
     }
   }
 }
+
 void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
                uint16_t *req_IR_regs, int *count_IR_regs) {
   if (!n)
@@ -455,13 +456,8 @@ void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
   return;
 }
 
-/*
-void build_requests(  modbus_request_t *HR_rq,
-                      int              *count_HR_rq,
-                      modbus_request_t *IR_rq,
-                      int              *count_IR_rq )
- */
 void build_requests() {
+
   /* Карта упомянутых в правилах регистров, для составления плана запросов */
   int count_HR_regs = 0;
   int count_IR_regs = 0;
@@ -480,12 +476,15 @@ void build_requests() {
   memset(HR_requests, 0, sizeof(HR_requests));
   memset(IR_requests, 0, sizeof(IR_requests));
 
-  /* Обойдем все правила в поисках выявленных регистров */
+  /* Поиск Modbus-регистров в правилах */
+  /* Проходим по каждому правилу */
   for (int i = 0; i < rule_count; i++) {
+    /* в каждом правиле рекурсивно обходим узлы */
     build_req(rules[i].ast, req_HR_regs, &count_HR_regs, req_IR_regs,
               &count_IR_regs);
   }
 
+  /* На основе массива найденых регистров строим запросы */
   count_HR_rq = optimize_modbus_requests(req_HR_regs, count_HR_regs,
                                          HR_requests, MAX_TCP_GAP);
 
@@ -520,10 +519,8 @@ void PutData(AppStruct *dev_data, time_t t) {
   print_vars(runtime_vars, runtime_var_count);
 }
 
-/*============================================================================
- * Прототип
- * Входной аргумент - имя конфигурационного файла с правилами
- *============================================================================*/
+/* Прототип
+   Входной аргумент - имя конфигурационного файла с правилами */
 int main(int argc, char *argv[]) {
 
   const char *cfg_file = (argc > 1) ? argv[1] : "testconfig.cfg";
@@ -534,12 +531,9 @@ int main(int argc, char *argv[]) {
 //  uint16_t modbus_IR_registers[65536];
   memset(modbus_IR_registers, 0, sizeof(modbus_IR_registers));
 
-  modbus_t *ctx;
+  modbus_t *ctx = NULL;
 
-  /*
-    ctx = modbus_new_tcp( "192.168.222.244", 1502 );
-   */
-  ctx = modbus_new_tcp("45.8.248.56", 502);
+  ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
   modbus_set_slave(ctx, 10);
 
   if (modbus_connect(ctx) == -1) {
@@ -548,13 +542,15 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  /* Тестовые данные: 10.0f in Big Endian = 0x41200000 */
+  /* Тестовые данные для типа float:
+     10.0f in Big Endian = 0x41200000 */
   /*modbus_HR_registers[ 0 ] = 0x4120;
     modbus_HR_registers[ 1 ] = 0x0000;
 
     modbus_HR_registers[ 2 ] = 100;*/
 
-  /* Тестовые данные: 1.2e+34 in Little Endian = 0x47027D2A59B51735 */
+  /* Тестовые данные для типа double:
+     1.2e+34 in Little Endian = 0x47027D2A59B51735 */
   /*modbus_IR_registers[ 0 ] = 0x1735;
     modbus_IR_registers[ 1 ] = 0x59B5;
     modbus_IR_registers[ 2 ] = 0x7D2A;
@@ -562,7 +558,7 @@ int main(int argc, char *argv[]) {
 
     modbus_IR_registers[ 4 ] = 200;*/
 
-  AppStruct my_device = {0};
+  AppStruct my_device = { 0 };
 
   printf("--- Перед расчетом ---\n");
   print_struct(&my_device);
@@ -611,8 +607,7 @@ int main(int argc, char *argv[]) {
       /* использование структуры, для передачи данных в систему */
       PutData(&my_device, time(NULL));
     next_iter:
-      /* TODO: Можно сделать "адаптивную" паузу,
-               учитывающую время запроса и обработки данных  */
+
       sleep(1);
     }
 
