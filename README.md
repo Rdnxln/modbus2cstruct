@@ -8,7 +8,7 @@ The only HR-, IR- registers are supported now.
 
 ``` TXT
 { Application }
- ^- Data in AppStruct -< { modbus2cstruct }             <- Set of riles (config-file 1)
+ ^- Data in AppStruct -< { modbus2cstruct }             <- Set of rules (config-file 1)
                           ^- Data in HR-, IR-registers
                              (modbus-RTU or Modbus-TCP) <- Your Device 1,
                                                            supported modbus-protocol
