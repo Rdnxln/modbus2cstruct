@@ -21,6 +21,20 @@ The only HR-, IR- registers are supported now.
                                                            connection
 ```
 
+
+Rules for registers convertation to your AppStruct:
+``` txt
+AppStruct.Value  =  FLOAT(HR[0] << 16 + HR[1])
+AppStruct.Code   = ( IR[16] & 0x0FF0 ) >> 4
+tempVAR          = FLOAT(HR[2] <<16 + HR[3])
+AppStruct.state.A1 = VAR1 > 434 ? 1 : 0
+AppStruct.state.A2 = IR[0] & 1
+AppStruct.state.A3 = VAR1 > 434 ? 1 : 0
+VAR2 = cos(tempVAR)
+AppStruct.SourceTime = IR[301] | ( IR[300]<<16 )
+```
+
+
 For example, your application accept data with using specified data structure like this:
 ``` C
 typedef struct {
@@ -38,6 +52,7 @@ typedef struct {
   uint64_t   SourceTime;
 } AppStruct ;
 ```
+
 You can define mapping array for your structure AppStruct:
 ``` C
 static const field_map_t field_map[] = {
@@ -67,18 +82,6 @@ static const field_map_t field_map[] = {
     {"state.B2", offsetof(AppStruct, state), FTYPE_BITFIELD, 10, 6},
 };
 #define FIELD_MAP_SIZE (sizeof(field_map) / sizeof(field_map[0]))
-```
-
-Define a set of rules in configuration file like this:
-``` txt
-AppStruct.Value  =  FLOAT(HR[0] << 16 + HR[1])
-AppStruct.Code   = ( IR[16] & 0x0FF0 ) >> 4
-tempVAR          = FLOAT(HR[2] <<16 + HR[3])
-AppStruct.state.A1 = VAR1 > 434 ? 1 : 0
-AppStruct.state.A2 = IR[0] & 1
-AppStruct.state.A3 = VAR1 > 434 ? 1 : 0
-VAR2 = cos(tempVAR)
-AppStruct.SourceTime = IR[301] | ( IR[300]<<16 )
 ```
 
 TODO: finish this description
