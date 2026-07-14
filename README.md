@@ -22,7 +22,7 @@ The only HR-, IR- registers are supported now.
 ```
 
 
-Rules for registers convertation to your AppStruct:
+Rules for registers convertation to your AppStruct (config-file example):
 ``` txt
 AppStruct.Value  =  FLOAT(HR[0] << 16 + HR[1])
 AppStruct.Code   = ( IR[16] & 0x0FF0 ) >> 4
