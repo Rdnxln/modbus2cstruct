@@ -184,8 +184,12 @@ static void write_field(void *struct_ptr, const field_map_t *fm,
         ( Выражение )
         AppStruct.Поле (в разработке)
  */
-static int load_config(const char *filename) {
+static int load_config(const char *filename, modbus_t **p_ctx) {
   int line_count = 0;
+
+  if(!p_ctx) return 0;
+  if(*p_ctx != NULL ) return 0; /* уже контекст занят или не инициализирован */
+
 
   FILE *fp = fopen(filename, "r");
   if (!fp) {
@@ -316,6 +320,19 @@ static int load_config(const char *filename) {
   }
 
   fclose(fp);
+  /* если опции соединения не были указаны - пытаемся использовать по-умолчанию */
+  if( *p_ctx == NULL ) {
+    fprintf( stderr, "не найдены опции modbus-подключения, используются по-умолчанию\n" );
+    /* connect options we will get from configfile.cfg */
+    *p_ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
+    if(*p_ctx == NULL) {
+      perror("Невозможно создать modbus-контекст!");
+    }
+    else {
+      /* если подключились - выставляем адрес устройства для опроса*/
+      modbus_set_slave(*p_ctx, 10);
+    }
+  }
   return 0;
 }
 
@@ -519,6 +536,18 @@ void PutData(AppStruct *dev_data, time_t t) {
   print_vars(runtime_vars, runtime_var_count);
 }
 
+void f1( modbus_t **p_ctx ) {
+
+  if( p_ctx == NULL ) return;
+
+  modbus_t *ctx = NULL;
+
+  ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
+  modbus_set_slave(ctx, 10);
+
+  *p_ctx = ctx;
+}
+
 /* Прототип
    Входной аргумент - имя конфигурационного файла с правилами */
 int main(int argc, char *argv[]) {
@@ -531,16 +560,7 @@ int main(int argc, char *argv[]) {
 //  uint16_t modbus_IR_registers[65536];
   memset(modbus_IR_registers, 0, sizeof(modbus_IR_registers));
 
-  modbus_t *ctx = NULL;
 
-  ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
-  modbus_set_slave(ctx, 10);
-
-  if (modbus_connect(ctx) == -1) {
-    fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
-    modbus_free(ctx);
-    return -1;
-  }
 
   /* Тестовые данные для типа float:
      10.0f in Big Endian = 0x41200000 */
@@ -565,9 +585,18 @@ int main(int argc, char *argv[]) {
   printf("\n");
 
   do {
+    modbus_t *ctx = NULL;
+    //f1( &ctx );
 
     printf("Загрузка конфигурации с правилами: %s\n", cfg_file);
-    if (load_config(cfg_file) != 0) {
+    if (load_config(cfg_file, &ctx) != 0) {
+      return 1;
+    }
+
+    if (modbus_connect(ctx) == -1) {
+      fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+      free_rules();
+      modbus_free(ctx);
       return 1;
     }
 
@@ -612,12 +641,14 @@ int main(int argc, char *argv[]) {
     }
 
     free_rules();
+
+    /* Закрытие соединения */
+    modbus_close(ctx);
+    modbus_free(ctx);
+
   }
   while(0);
 
-  /* Закрытие соединения */
-  modbus_close(ctx);
-  modbus_free(ctx);
 
   return 0;
 }

@@ -1,13 +1,26 @@
-# modbus2cstruct
-Convert any Modbus registers into static C structures.
+# modbus2cstruct convert any number of Modbus HR-, IR-registers into static C structures
+
 The conversion logic is defined by a flexible set of rules stored in a configuration file.
 Designed to normalize data from various Modbus-sources into your standard application data bus.
 
 The only HR-, IR- registers are supported now.
 
+modbus2cstruct is designed to be integrated in your code.
+
+Integration can be created in three steps:
+1. Describe your C-struct/typedef (like AppStruct)
+   in terms of field_map_t field_map[] array.
+
+2. Write the rules/exprecssions of convertions
+   ( Your AppStruct.YourField = YourRegister[NumOfRegister] )
+
+3. Add code to read the rules at one time (start the program)
+   and evaluate the rules expressions for filling
+   your C-struct from registers many time
+   without re-parsing rules at execution work cycles!
 
 ``` TXT
-{ Application }
+{ Application dealing with your AppStruct }
  ^- Data in AppStruct -< { modbus2cstruct }             <- Set of rules (config-file 1)
                           ^- Data in HR-, IR-registers
                              (modbus-RTU or Modbus-TCP) <- Your Device 1,
@@ -84,4 +97,4 @@ static const field_map_t field_map[] = {
 #define FIELD_MAP_SIZE (sizeof(field_map) / sizeof(field_map[0]))
 ```
 
-TODO: finish this description
+TODO: Help to finish brief
