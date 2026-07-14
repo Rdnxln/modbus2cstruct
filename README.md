@@ -8,7 +8,7 @@ The only HR-, IR- registers are supported now.
 modbus2cstruct is designed to be integrated in your code.
 
 Integration can be created in three steps:
-1. Describe your C-struct/typedef (like AppStruct)
+1. Describe your C-struct/typedef (like AppStruct, see below)
    in terms of field_map_t field_map[] array.
 
 2. Write the rules/exprecssions of convertions
