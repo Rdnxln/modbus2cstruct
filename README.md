@@ -1,100 +1,109 @@
-# modbus2cstruct convert any number of Modbus HR-, IR-registers into static C structures
+# modbus2cstruct
 
-The conversion logic is defined by a flexible set of rules stored in a configuration file.
-Designed to normalize data from various Modbus-sources into your standard application data bus.
+Convert any number of Modbus HR (Holding Registers) and IR (Input Registers) into static C structures. 
 
-The only HR-, IR- registers are supported now.
+The conversion logic is defined by a flexible set of rules stored in a configuration file. This tool is designed to normalize data from various Modbus sources into your standard application data bus.
 
-modbus2cstruct is designed to be integrated in your code.
+## Features
+* **Register Support:** Currently supports HR and IR registers.
+* **Seamless Integration:** Designed to be directly embedded into your C code.
+* **High Performance:** Rules are parsed only once at startup. Evaluation during runtime cycles is extremely fast and involves no re-parsing.
 
-Integration can be created in three steps:
-1. Describe your C-struct/typedef (like AppStruct, see below)
-   in terms of field_map_t field_map[] array.
+## Integration Steps
 
-2. Write the rules/exprecssions of convertions
-   ( Your AppStruct.YourField = YourRegister[NumOfRegister] )
+You can integrate `modbus2cstruct` into your application in three steps:
 
-3. Add code to read the rules at one time (start the program)
-   and evaluate the rules expressions for filling
-   your C-struct from registers many time
-   without re-parsing rules at execution work cycles!
+1. **Define the Mapping:** Describe your C-struct/typedef (e.g., `AppStruct`) using a `field_map_t field_map[]` array.
+2. **Write the Rules:** Create a configuration file with conversion expressions (e.g., `AppStruct.YourField = YourRegister[Num]`).
+3. **Initialize and Run:** Add code to parse the rules once at application startup, then evaluate the expressions in your execution loops to populate your C-struct.
 
-``` TXT
-{ Application dealing with your AppStruct }
- ^- Data in AppStruct -< { modbus2cstruct }             <- Set of rules (config-file 1)
-                          ^- Data in HR-, IR-registers
-                             (modbus-RTU or Modbus-TCP) <- Your Device 1,
-                                                           supported modbus-protocol
-                                                           connection
+## Data Flow Diagram
 
- ^- Data in AppStruct -< { modbus2cstruct }             <- Set of rules (config-file 2) fileN
-                          ^- Data in HR-, IR-registers
-                             (modbus-RTU or Modbus-TCP) <- Your Device N,
-                                                           supported modbus-protocol
-                                                           connection
+```text
+{ Application processing your AppStruct }
+                ^
+         [ Data in AppStruct ]
+                |
+        { modbus2cstruct } <------- [ Set of rules: config-file 1 ]
+                ^
+    [ HR-, IR-registers data ]
+    (Modbus RTU or Modbus TCP)
+                |
+         { Your Device 1 }
+
+ ------------------------------------------------------------------
+
+{ Application processing your AppStruct }
+                ^
+         [ Data in AppStruct ]
+                |
+        { modbus2cstruct } <------- [ Set of rules: config-file N ]
+                ^
+    [ HR-, IR-registers data ]
+    (Modbus RTU or Modbus TCP)
+                |
+         { Your Device N }
 ```
 
+## Configuration Rules Example
 
-Rules for registers convertation to your AppStruct (config-file example):
-``` txt
-AppStruct.Value  =  FLOAT(HR[0] << 16 + HR[1])
-AppStruct.Code   = ( IR[16] & 0x0FF0 ) >> 4
-tempVAR          = FLOAT(HR[2] <<16 + HR[3])
+Examples of conversion rules for registers to populate your `AppStruct`:
+
+```txt
+AppStruct.Value = FLOAT((HR[0] << 16) + HR[1])
+AppStruct.Code = (IR[16] & 0x0FF0) >> 4
+tempVAR = FLOAT((HR[2] << 16) + HR[3])
 AppStruct.state.A1 = VAR1 > 434 ? 1 : 0
 AppStruct.state.A2 = IR[0] & 1
 AppStruct.state.A3 = VAR1 > 434 ? 1 : 0
 VAR2 = cos(tempVAR)
-AppStruct.SourceTime = IR[301] | ( IR[300]<<16 )
+AppStruct.SourceTime = IR[301] | (IR[300] << 16)
 ```
 
+## Code Example
 
-For example, your application accept data with using specified data structure like this:
-``` C
+### 1. Your Target C Structure
+```c
+#include <stdint.h>
+
 typedef struct {
-  float      Value; /* float data,         Data of measurement */
-  uint16_t   Code;  /* short integer data, Unit's code of value */
-  struct {
-    uint8_t  A1: 1; /* bit1 of data,       Quality code 1 */
-    uint8_t  A2: 1; /* bit2 of data,       Quality code 2 */
-    uint8_t  A3: 1; /* ...                 Quality code 3 */
-    uint8_t  A4: 4; /* bit-field of data,  Quality code 4 */
-    uint8_t    : 1; /* reserved, not used yet      */
-    uint8_t  B1: 2; /* bit-field of data,  Quality code  N-1 */
-    uint8_t  B2: 6; /* bit-field of data,  Quality code  N   */
-  } state ;
-  uint64_t   SourceTime;
-} AppStruct ;
+    float Value;         /* Measurement data */
+    uint16_t Code;       /* Unit code of value */
+    struct {
+        uint8_t A1: 1;   /* Bit 1: Quality code 1 */
+        uint8_t A2: 1;   /* Bit 2: Quality code 2 */
+        uint8_t A3: 1;   /* Bit 3: Quality code 3 */
+        uint8_t A4: 4;   /* Bits 4-7: Quality code 4 */
+        uint8_t   : 1;   /* Reserved */
+        uint8_t B1: 2;   /* Bits 9-10: Quality code N-1 */
+        uint8_t B2: 6;   /* Bits 11-16: Quality code N */
+    } state;
+    uint64_t SourceTime;
+} AppStruct;
 ```
 
-You can define mapping array for your structure AppStruct:
-``` C
+### 2. Structure Mapping Array
+```c
+#include <stddef.h>
+
 static const field_map_t field_map[] = {
-    /* Field name */
-    {"Value",
-    /* Byte offset for field in application struct */
-                        offsetof(AppStruct, Value),
-    /* Type of field */
-                                                    FTYPE_FLOAT,
-    /* Number of bit and Bit width (used only for bit or bit-field) */
-                                                                 0, 0},
-    {"AppStruct.Value", offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0},
-    {"V",               offsetof(AppStruct, Value), FTYPE_FLOAT, 0, 0},
-    /* NOTE: 'Value',
-             'AppStruct.Value'
-             'V' are the names (aliases) for field Value in AppStruct */
-
-    {"Code", offsetof(AppStruct, Code), FTYPE_UINT16, 0, 0},
-    {"SourceTime", offsetof(AppStruct, SourceTime), FTYPE_UINT64, 0, 0},
-
-    /* Bit fields */
-    {"state.A1", offsetof(AppStruct, state), FTYPE_BITFIELD, 0,  1},
-    {"state.A2", offsetof(AppStruct, state), FTYPE_BITFIELD, 1,  1},
-    {"state.A3", offsetof(AppStruct, state), FTYPE_BITFIELD, 2,  1},
-    {"state.A4", offsetof(AppStruct, state), FTYPE_BITFIELD, 3,  4},
-    {"state.B1", offsetof(AppStruct, state), FTYPE_BITFIELD, 8,  2},
-    {"state.B2", offsetof(AppStruct, state), FTYPE_BITFIELD, 10, 6},
+    /* Aliases for 'Value' field */
+    {"Value",           offsetof(AppStruct, Value),      FTYPE_FLOAT,    0,  0},
+    {"AppStruct.Value", offsetof(AppStruct, Value),      FTYPE_FLOAT,    0,  0},
+    {"V",               offsetof(AppStruct, Value),      FTYPE_FLOAT,    0,  0},
+    
+    /* Standard fields */
+    {"Code",            offsetof(AppStruct, Code),       FTYPE_UINT16,   0,  0},
+    {"SourceTime",      offsetof(AppStruct, SourceTime), FTYPE_UINT64,   0,  0},
+    
+    /* Bitfields (Name, Offset, Type, Bit Offset, Bit Width) */
+    {"state.A1",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 0,  1},
+    {"state.A2",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 1,  1},
+    {"state.A3",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 2,  1},
+    {"state.A4",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 3,  4},
+    {"state.B1",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 8,  2},
+    {"state.B2",        offsetof(AppStruct, state),      FTYPE_BITFIELD, 10, 6},
 };
+
 #define FIELD_MAP_SIZE (sizeof(field_map) / sizeof(field_map[0]))
 ```
-
-TODO: Help to finish brief
