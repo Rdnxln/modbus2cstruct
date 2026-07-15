@@ -3,11 +3,11 @@
 set -e
 
 # установка средств разработки
-[[ -d /var/lib/dpkg || -d /var/lib/apt ]] &&             sudo apt install gcc make autoconf automake libtool
-[[ -d /var/lib/rpm  || -x $(which dnf 2>/dev/null) ]] && sudo dnf install gcc make autoconf automake libtool
+[[ -d /var/lib/dpkg || -d /var/lib/apt ]] &&             sudo apt install gcc make autoconf automake libtool git
+[[ -d /var/lib/rpm  || -x $(which dnf 2>/dev/null) ]] && sudo dnf install gcc make autoconf automake libtool git
 
 # очистка на случай повторного запуска
-./UNSETUP.sh || true
+./BUILD_CLEANUP.sh || true
 
 # скачивание ...
 git clone https://github.com/stephane/libmodbus.git

@@ -99,6 +99,29 @@ void print_vars(const expr_var_t *vars, size_t var_count) {
   }
 }
 
+/* удаляем начальные и завершающие пробелы */
+void str_trim_spaces(char *str)
+{  int i = 0, /* итератор */
+       s = 0; /* начало строки (за пробелами) */
+
+  if (str == NULL) return;
+
+  while(str[i] == ' ') /* пропускаем стартовые пробелы (если есть) */
+    i++;
+
+  s = i; /* сохраняем индекс начала строки без учета стартовых пробелов */
+  do {
+    str[i - s] = str[i]; /* сдвигаем всю строку к началу, замещая стартовые пробелы */
+  } while(str[i++] != '\0');
+
+  i = i - s - 2;
+  while(str[i] == ' ' || str[i] == '\n') {
+    str[i] = '\0';
+    i--;
+  }
+}
+
+
 /* Вычисляемое выражение */
 /* Тип результата для выражения: */
 typedef enum {
@@ -126,36 +149,55 @@ static int runtime_var_count = 0;
 
 /* Запись значения в целевой тип с использованием карты полей */
 static void write_field(void *struct_ptr, const field_map_t *fm,
-                        expr_val_t val) {
+                        expr_val_t val)
+{
   uint8_t *bytes = (uint8_t *)struct_ptr;
 
   if (fm->type == FTYPE_FLOAT) {
+
     float f = val.is_float ? val.f : (float)val.i;
     memcpy(bytes + fm->offset, &f, sizeof(float));
+
   } else if (fm->type == FTYPE_DOUBLE) {
+
     double f = val.is_float ? val.f : (double)val.i;
     memcpy(bytes + fm->offset, &f, sizeof(double));
+
   } else if (fm->type == FTYPE_INT16) {
+
     int16_t v = (int16_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int16_t));
+
   } else if (fm->type == FTYPE_UINT16) {
+
     uint16_t v = (uint16_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint16_t));
+
   } else if (fm->type == FTYPE_INT32) {
+
     int32_t v = (int32_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int32_t));
+
   } else if (fm->type == FTYPE_UINT32) {
+
     uint32_t v = (uint32_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint32_t));
+
   } else if (fm->type == FTYPE_INT64) {
+
     int64_t v = val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int64_t));
+
   } else if (fm->type == FTYPE_UINT64) {
+
     uint64_t v = (uint64_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint64_t));
+
   } else if (fm->type == FTYPE_UINT8) {
+
     uint8_t v = (uint8_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint8_t));
+
   } else if (fm->type == FTYPE_BITFIELD) {
     write_bitfield(struct_ptr, fm, val);
   }
@@ -185,11 +227,11 @@ static void write_field(void *struct_ptr, const field_map_t *fm,
         AppStruct.Поле (в разработке)
  */
 static int load_config(const char *filename, modbus_t **p_ctx) {
+
   int line_count = 0;
 
   if(!p_ctx) return 0;
   if(*p_ctx != NULL ) return 0; /* уже контекст занят или не инициализирован */
-
 
   FILE *fp = fopen(filename, "r");
   if (!fp) {
@@ -206,17 +248,144 @@ static int load_config(const char *filename, modbus_t **p_ctx) {
 
     line_count++;
 
+
     /* ищем начало комментария */
     char *cm = strchr(line, '#');
     if (cm)
       *cm = '\0'; /* начало комментария - это конец разбираемой строки */
 
     char *eq = strchr(line, '=');
-    /* ищем символ присваивания, он разделяет поле (field) и выражение
-     * (expr_str)*/
+    /* ищем символ присваивания, он разделяет поле (field) и выражение (expr_str).
+       если нет '=', то это или коментарий, или строка подключения,
+       или ошибочная строка, или пустая строка */
     if (!eq)
-      continue; /* переходим к следующей строке */
+    {
+      /* если нет символа '=' это или комментарий, или строка подключения */
+      if (strstr(line, "MODBUS_TCP:"))
+      {
+        if (*p_ctx!=NULL) {
+          fprintf(stderr, "Игнорируется повторная строка подключения: %s\n", line);
+          continue;
+        }
+        /*MODBUS_TCP:127.0.0.1:1502:0*/
+        /*MODBUS_TCP:IP-addr:IP-port:AddressID*/
+        char proto [512],
+             ipaddr[512],
+             port  [512],
+             addr  [512];
+        int count_param = sscanf(line, "%[^:]:%[^:]:%[^:]:%[^:]", proto, ipaddr, port, addr);
+        if (count_param == 4) {
+          str_trim_spaces(proto);
+          if (!strcmp(proto, "MODBUS_TCP")) {
+            str_trim_spaces(ipaddr);
+            str_trim_spaces(port);
+            str_trim_spaces(addr);
 
+            int p = atoi(port);
+            if (p < 1 || p > 65535) {
+              fprintf(stderr, "Указаный TCP-порт '%s' для modbus-подключения вне допустимого диапазона\n", port);
+              continue;
+            }
+            int unit_id = atoi(addr);
+            if (unit_id < 0 || unit_id > 247) {
+              fprintf(stderr, "Указаный адрес (UnitID) '%s' для подчиненного устройства вне допустимого диапазона\n", addr);
+              continue;
+            }
+            if(!strlen(ipaddr)) {
+              fprintf( stderr, "Не указан IP-адрес или имя хоста для подключения к modbus-серверу\n");
+              continue;
+            }
+
+            *p_ctx = modbus_new_tcp(ipaddr, p);
+            if (*p_ctx == NULL) {
+              perror("Невозможно создать modbus-контекст!");
+              fprintf(stderr, "Не удалось подключиться! Опция для подключения: %s\n", line);
+            }
+            else {
+              /* если подключились - выставляем адрес подчиненного устройства для опроса */
+              if (unit_id)
+                modbus_set_slave(*p_ctx, unit_id);
+            }
+          }
+        } else {
+          fprintf( stderr, "Недостаточно параметров для подключения %s\n", line );
+        }
+        continue;
+      }
+      else if (strstr(line, "MODBUS_RTU:"))
+      {
+        if (*p_ctx!=NULL) {
+          fprintf(stderr, "Игнорируется повторная строка подключения: %s\n", line);
+          continue;
+        }
+        /*MODBUS_RTU:/dev/ttyUSB0:115200:8:N:1:10*/
+        /*MODBUS_RTU:serial_tty_file:baud:data-bit:parity_control:stop-bit:AddressID*/
+        char proto  [512],
+             ttyfile[512],
+             baud   [512],
+             databit[512],
+             cparity[512],
+             stopbit[512],
+             addr   [512];
+        int count_param = sscanf(line, "%[^:]:%[^:]:%[^:]:%[^:]:%[^:]:%[^:]:%[^:]",
+                                 proto, ttyfile, baud, databit, cparity, stopbit, addr);
+        if (count_param == 7) {
+          str_trim_spaces(proto);
+          if (!strcmp(proto, "MODBUS_RTU")) {
+            str_trim_spaces(ttyfile);
+            str_trim_spaces(baud);
+            str_trim_spaces(databit);
+            str_trim_spaces(cparity);
+            str_trim_spaces(stopbit);
+            str_trim_spaces(addr);
+
+            int b = atoi(baud);
+            if (b < 300) {
+              fprintf(stderr, "Указанная скорость передачи данных baudrate '%s' для modbus-подключения вне допустимого диапазона\n", baud);
+              continue;
+            }
+
+            int db = atoi(databit);
+            if (db < 5 || db > 9) {
+              fprintf(stderr, "Указанно некорректное количество бит данных '%s'\n", databit);
+              continue;
+            }
+
+            int sb = atoi(stopbit);
+            if (sb != 1 && sb != 2) {
+              fprintf(stderr, "Указанно некорректное количество стоповых бит '%s'\n", stopbit);
+              continue;
+            }
+
+            int unit_id = atoi(addr);
+            if (unit_id < 0 || unit_id > 247) {
+              fprintf(stderr, "Указаный адрес (UnitID) '%s' для подчиненного устройства вне допустимого диапазона\n", addr);
+              continue;
+            }
+            if(!strlen(ttyfile)) {
+              fprintf( stderr, "Не указан файл tty-устройства для подключения к modbus-серверу\n");
+              continue;
+            }
+            *p_ctx = modbus_new_rtu(ttyfile, b, cparity[0], db, sb);
+            if (*p_ctx == NULL) {
+              perror("Невозможно создать modbus-контекст!");
+              fprintf(stderr, "Не удалось подключиться! Опция для подключения: %s\n", line);
+            }
+            else {
+              /* если подключились - выставляем адрес подчиненного устройства для опроса */
+              if (unit_id)
+                modbus_set_slave(*p_ctx, unit_id);
+            }
+          }
+        } else {
+          fprintf( stderr, "Недостаточно параметров для подключения %s\n", line );
+        }
+        continue;
+
+      }
+
+      continue; /* переходим к следующей строке */
+    }
     *eq = '\0';
     char *field = line;
     char *expr_str = eq + 1;
@@ -305,8 +474,7 @@ static int load_config(const char *filename, modbus_t **p_ctx) {
           runtime_var_count++;
         } else {
           fprintf(stderr,
-                  "Ошибка в конфигурации: Превышено число переменных (пропуск "
-                  "'%s').\n",
+                  "Ошибка в конфигурации: Превышено число переменных (пропуск '%s').\n",
                   field);
           expr_free(ast);
           ast = NULL;
@@ -321,18 +489,10 @@ static int load_config(const char *filename, modbus_t **p_ctx) {
 
   fclose(fp);
   /* если опции соединения не были указаны - пытаемся использовать по-умолчанию */
-  if( *p_ctx == NULL ) {
-    fprintf( stderr, "не найдены опции modbus-подключения, используются по-умолчанию\n" );
-    /* connect options we will get from configfile.cfg */
-    *p_ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
-    if(*p_ctx == NULL) {
-      perror("Невозможно создать modbus-контекст!");
-    }
-    else {
-      /* если подключились - выставляем адрес устройства для опроса*/
-      modbus_set_slave(*p_ctx, 10);
-    }
+  if (*p_ctx == NULL) {
+    fprintf(stderr, "Не найдены корректные опции modbus-подключения\n");
   }
+
   return 0;
 }
 
@@ -382,6 +542,8 @@ void update_struct(AppStruct *data, const uint16_t *HR_regs,
   }
 }
 
+/* рекурсивный обход AST-дерева для поиска
+   уникальных адресов Modbus-регистров с фиксацией их в массивах */
 void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
                uint16_t *req_IR_regs, int *count_IR_regs) {
   if (!n)
@@ -473,6 +635,7 @@ void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
   return;
 }
 
+/* построение запросов по регистрам в правилах */
 void build_requests() {
 
   /* Карта упомянутых в правилах регистров, для составления плана запросов */
@@ -497,13 +660,15 @@ void build_requests() {
   /* Проходим по каждому правилу */
   for (int i = 0; i < rule_count; i++) {
     /* в каждом правиле рекурсивно обходим узлы */
-    build_req(rules[i].ast, req_HR_regs, &count_HR_regs, req_IR_regs,
-              &count_IR_regs);
+    build_req(rules[i].ast,
+              req_HR_regs, &count_HR_regs, /* массивы для хранения встречающихся регистров и их число */
+              req_IR_regs, &count_IR_regs);
   }
 
   /* На основе массива найденых регистров строим запросы */
   count_HR_rq = optimize_modbus_requests(req_HR_regs, count_HR_regs,
                                          HR_requests, MAX_TCP_GAP);
+  /* TODO: дописать переключение на MAX_RTU_GAP в зависимости от типа подключения */
 
   count_IR_rq = optimize_modbus_requests(req_IR_regs, count_IR_regs,
                                          IR_requests, MAX_TCP_GAP);
@@ -530,26 +695,17 @@ build_reqs_cleanup:
     free(req_IR_regs);
 }
 
+/* имитация работы прикладной программы,
+  которая обрабатывает целевую структуру с полученными данными */
 void PutData(AppStruct *dev_data, time_t t) {
   printf("--- Данные приняты: %s", ctime(&t));
   print_struct(dev_data);
   print_vars(runtime_vars, runtime_var_count);
 }
 
-void f1( modbus_t **p_ctx ) {
-
-  if( p_ctx == NULL ) return;
-
-  modbus_t *ctx = NULL;
-
-  ctx = modbus_new_tcp( "45.8.248.56", 502); /* online service */
-  modbus_set_slave(ctx, 10);
-
-  *p_ctx = ctx;
-}
-
-/* Прототип
-   Входной аргумент - имя конфигурационного файла с правилами */
+/* MVP - прототип
+   Входной аргумент - имя конфигурационного файла с правилами и
+   опциями для подключения к modbus-серверу */
 int main(int argc, char *argv[]) {
 
   const char *cfg_file = (argc > 1) ? argv[1] : "testconfig.cfg";
@@ -586,7 +742,6 @@ int main(int argc, char *argv[]) {
 
   do {
     modbus_t *ctx = NULL;
-    //f1( &ctx );
 
     printf("Загрузка конфигурации с правилами: %s\n", cfg_file);
     if (load_config(cfg_file, &ctx) != 0) {
@@ -648,7 +803,6 @@ int main(int argc, char *argv[]) {
 
   }
   while(0);
-
 
   return 0;
 }
