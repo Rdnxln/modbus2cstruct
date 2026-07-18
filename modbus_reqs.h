@@ -19,25 +19,21 @@ typedef struct {
     uint16_t quantity;   /* количество запрашиваемых регистров подряд */
 } modbus_request_t;
 
-/**
- * @brief Оптимальная группировка задействованных адресов в запросы Modbus
- * @param regs           Исходный отсортированный массив адресов
- * @param regs_count     Количество элементов в массиве regs
- * @param out_requests   Выходной массив для структуры запросов
- * @return int           Количество сформированных запросов
- */
+/* Оптимальная группировка задействованных адресов в запросы Modbus
+   Для HR-, IR- регистров
+   regs          Исходный отсортированный массив адресов
+   regs_count    Количество элементов в массиве regs
+   out_requests  Выходной массив для структуры запросов
+   gap_in_regs   Интервал-"дыра" из ненужных регистров между нужными регистрами (для разделения/объединения запросов)
+   Результат:    Количество сформированных запросов */
 int optimize_modbus_requests( uint16_t         *regs,
                               uint16_t          regs_count,
                               modbus_request_t *out_requests,
                               uint16_t          gap_in_regs );
-/*
-typedef int (*ReadRegistersFunc) (modbus_t *, int, int, uint16_t);
- */
 int update_registers( modbus_t          *ctx
                     , modbus_request_t  *rq
                     , int                rq_count
                     , uint16_t          *regs
-/*                  , ReadRegistersFunc *func */
                     , int              (*func)( modbus_t*, int, int, uint16_t* )
                     );
 

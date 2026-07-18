@@ -1317,6 +1317,63 @@ static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
   return val_int(0);
 }
 
+/* Запись значения в целевой тип с использованием карты полей */
+void write_field(void *struct_ptr, const field_map_t *fm,
+                        expr_val_t val)
+{
+  uint8_t *bytes = (uint8_t *)struct_ptr;
+
+  if (fm->type == FTYPE_FLOAT) {
+
+    float f = val.is_float ? val.f : (float)val.i;
+    memcpy(bytes + fm->offset, &f, sizeof(float));
+
+  } else if (fm->type == FTYPE_DOUBLE) {
+
+    double f = val.is_float ? val.f : (double)val.i;
+    memcpy(bytes + fm->offset, &f, sizeof(double));
+
+  } else if (fm->type == FTYPE_INT16) {
+
+    int16_t v = (int16_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(int16_t));
+
+  } else if (fm->type == FTYPE_UINT16) {
+
+    uint16_t v = (uint16_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(uint16_t));
+
+  } else if (fm->type == FTYPE_INT32) {
+
+    int32_t v = (int32_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(int32_t));
+
+  } else if (fm->type == FTYPE_UINT32) {
+
+    uint32_t v = (uint32_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(uint32_t));
+
+  } else if (fm->type == FTYPE_INT64) {
+
+    int64_t v = val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(int64_t));
+
+  } else if (fm->type == FTYPE_UINT64) {
+
+    uint64_t v = (uint64_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(uint64_t));
+
+  } else if (fm->type == FTYPE_UINT8) {
+
+    uint8_t v = (uint8_t)val.i;
+    memcpy(bytes + fm->offset, &v, sizeof(uint8_t));
+
+  } else if (fm->type == FTYPE_BITFIELD) {
+    write_bitfield(struct_ptr, fm, val);
+  }
+}
+
+
 /* рекурсивное вычисление узлов выражения */
 expr_val_t expr_eval(const expr_node_t *n,
                      const uint16_t *HR_regs, size_t HR_reg_count,

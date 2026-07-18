@@ -168,6 +168,7 @@ void         read_bitfield(  const void *struct_ptr, const field_map_t *fm, expr
 /* запись битовых полей */
 void         write_bitfield( void       *struct_ptr, const field_map_t *fm, expr_val_t  val   );
 
-
+/* Запись значения в целевой тип с использованием карты полей */
+void         write_field( void *struct_ptr, const field_map_t *fm,          expr_val_t val );
 
 #endif
