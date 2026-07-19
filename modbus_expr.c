@@ -1599,7 +1599,7 @@ expr_val_t expr_eval(const expr_node_t *n,
         }
         case CAST_DOUBLE: {
           if( c.is_float )
-            return val_flt((float)c.f);
+            return val_flt((double)c.f);
           return val_flt((double)r);
         }
         case CAST_INT8:

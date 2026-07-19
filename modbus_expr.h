@@ -29,6 +29,7 @@ typedef enum {
   UNARY_NEG   /* Смена знака */
 } unop_t;
 
+/* Результат вычисления выражения */
 typedef struct {
   bool       is_float;
   union
@@ -38,24 +39,6 @@ typedef struct {
   };
 } expr_val_t;
 
-typedef enum {
-  NODE_LIT_INT,        /* целое число */
-  NODE_LIT_FLOAT,      /* вещественное число */
-/* Достаточно для MVP */
-  NODE_REG_HR,         /* ссылка на HR-регистр (Modbus) */
-  NODE_REG_IR,         /* ссылка на IR-регистр (Modbus) */
-/*  TODO: */
-/*  NODE_REG_CL, */      /* ссылка на CL-регистр (Modbus) */
-/*  NODE_REG_DI, */      /* ссылка на DI-регистр (Modbus) */
-  NODE_VAR,            /* внутренняя переменная */
-  NODE_FUNC,           /* функция */
-  NODE_UNARY,          /* унарная операция */
-  NODE_BINARY,         /* */
-  NODE_TERNARY,        /* тернарная операция */
-  NODE_CAST,           /* приведение типа */
-  NODE_FLOAT_CONVERT,  /* байтовые интерпретации */
-  NODE_DOUBLE_CONVERT
-} node_kind_t;
 
 /* Функции */
 typedef enum {
@@ -103,48 +86,62 @@ typedef struct {
   uint8_t     bit_width; /* количество бит в поле */
 } field_map_t;
 
+/* Тип узла */
+typedef enum {
+  NODE_LIT_INT,        /* целое число */
+  NODE_LIT_FLOAT,      /* вещественное число */
+/* Достаточно для MVP */
+  NODE_REG_HR,         /* ссылка на HR-регистр (Modbus) */
+  NODE_REG_IR,         /* ссылка на IR-регистр (Modbus) */
+/*  TODO: */
+/*  NODE_REG_CL, */    /* ссылка на CL-регистр (Modbus) */
+/*  NODE_REG_DI, */    /* ссылка на DI-регистр (Modbus) */
+  NODE_VAR,            /* внутренняя переменная */
+  NODE_FUNC,           /* функция */
+  NODE_UNARY,          /* унарная операция */
+  NODE_BINARY,         /* бинарная операция */
+  NODE_TERNARY,        /* тернарная операция */
+  NODE_CAST,           /* приведение типа */
+  NODE_FLOAT_CONVERT,  /* байтовая интерпретация памяти в float */
+  NODE_DOUBLE_CONVERT  /* байтовая интерпретация памяти в double */
+} node_kind_t;
+
 /* структура ноды - элементарной единицы синтаксиса */
 typedef struct expr_node {
-  node_kind_t  kind;  /* тип ноды NODE_... */
+  node_kind_t  kind;            /* тип ноды NODE_... */
   union {
-    int64_t    lit_int;
-    double     lit_float;
-    int        reg_idx;
-    char       var_name[64];
-
-    struct {
-      func_id_t         fn;
-      struct expr_node *child;
+    int64_t  lit_int;           /* целое значение */
+    double   lit_float;         /* вещественное значение */
+    int      reg_idx;           /* индекс для регистра */
+    char     var_name[64];      /* имя внутренней переменной */
+    struct {                    /* функция */
+      func_id_t         fn;        /* идентификатор функции */
+      struct expr_node *child;     /* аргумент функции */
            } func;
-
-    struct {
-       unop_t            op;
-       struct expr_node *child;
+    struct {                    /* унарная операция */
+      unop_t            op;        /* тип унарной операции */
+      struct expr_node *child;     /* аргумент для унарной операции */
            } unary;
-
-    struct {
-      binop_t           op;
-      struct expr_node *left,
-                        *right;
-           }   binary;
-
-    struct {
-       struct expr_node *cond,
-                        *yes,
-                        *no;
+    struct {                    /* бинарная операция */
+      binop_t           op;        /* тип бинарной операции */
+      struct expr_node *left,      /* левый аргумент */
+                       *right;     /* правый аргумент */
+           } binary;
+    struct {                    /* тернарная операция */
+       struct expr_node *cond,     /* выражение условия тернарной операции */
+                        *yes,      /* выражение для TRUE */
+                        *no;       /* выражение для FALSE */
            } ternary;
-
-    struct {
-       cast_type_t       ctype;
-       struct expr_node *child;
+    struct {                    /* приведение типа */
+       cast_type_t       ctype;    /* тип */
+       struct expr_node *child;    /* приводимый аргумент */
            } cast;
-
-    struct {
-       struct expr_node *child;
+    struct {                    /* реинтерпретация в float/double  */
+       struct expr_node *child;    /* аргумент */
            } byteconvert;
-
   };
 } expr_node_t;
+
 
 /* Вычисляемое выражение */
 /* Тип результата для выражения: */
