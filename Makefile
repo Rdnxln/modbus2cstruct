@@ -2,7 +2,6 @@
 SRCS = \
   modbus_expr.c \
   modbus_reqs.c \
-  rules_conf.c  \
 
 
 OBJS =$(SRCS:.c=.o)

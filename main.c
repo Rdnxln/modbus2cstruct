@@ -9,7 +9,6 @@
 
 #include "modbus_expr.h"
 #include "modbus_reqs.h"
-#include "rules_conf.h"
 
 /* Целевой тип данных приложения "AppStruct",
    в который необходимо преобразовать исходные данные */
@@ -94,12 +93,7 @@ void update_struct(AppStruct *data,
     /* выполняем расчет по i-му правилу */
     expr_val_t val = expr_eval(
         r->rules[i].ast, /* дерево вычисления  */
-
-        r->modbus_HR_registers, sizeof( r->modbus_HR_registers ), /* исходные данные */
-        r->modbus_IR_registers, sizeof( r->modbus_IR_registers ), /* исходные данные */
-
-        r->runtime_vars, /* внутренние переменные */
-        r->runtime_var_count,
+        r,
 
         data, /* целевая структура, составной тип, куда сохраняются данные */
 
