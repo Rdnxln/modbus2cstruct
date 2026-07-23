@@ -51,9 +51,9 @@ typedef struct {
 } token_t;
 
 typedef struct {
-  const char *src;
-  int pos;
-  token_t cur;
+  const char *src; /* Начало анализируемой строки */
+  int pos;         /* Текущий символ в строке */
+  token_t cur;     /* Токен */
 } lexer_t;
 
 static expr_node_t *parse_expr(lexer_t *L);
@@ -69,15 +69,7 @@ static expr_node_t *parse_add(lexer_t *L);
 static expr_node_t *parse_mul(lexer_t *L);
 static expr_node_t *parse_unary(lexer_t *L);
 static expr_node_t *parse_primary(lexer_t *L);
-/*
-static int  parse_error = 0;
- */
-/* Функция для установки/сброса и проверки ошибок */
-/*
-static void set_error()    { parse_error = 1; }
-static void reset_parser() { parse_error = 0; }
-static int  has_error()    { return parse_error; }
- */
+
 /* Безопасные сдвиги */
 static uint64_t safe_shl(int64_t left, int64_t right) {
   /* Ограничиваем сдвиг разумным диапазоном */
@@ -206,7 +198,6 @@ static void lex_number(lexer_t *L, token_t *t) {
 
 /* разбор переменной */
 static void lex_ident(lexer_t *L, token_t *t) {
-
   int i = 0;
 
   while (isalnum((unsigned char)peek(L)) || peek(L) == '_') {
@@ -221,7 +212,6 @@ static void lex_ident(lexer_t *L, token_t *t) {
 }
 
 static void lex_next(lexer_t *L) {
-
   skip_ws(L); /* пропускаем пробелы */
 
   char c = peek(L);
@@ -291,7 +281,6 @@ static void lex_next(lexer_t *L) {
        т.к. мы не поддерживаем вложенные выражения с присваиванием */
     break;
   case '<':
-
     if (peek(L) == '<') {
       L->pos++;
       L->cur.type = T_LSHIFT;
@@ -306,7 +295,6 @@ static void lex_next(lexer_t *L) {
 
     break;
   case '>':
-
     if (peek(L) == '>') {
       L->pos++;
       L->cur.type = T_RSHIFT;
@@ -337,7 +325,6 @@ static void lex_next(lexer_t *L) {
 }
 
 static void lex_init(lexer_t *L, const char *src) {
-
   L->src = src;
   L->pos = 0;
   lex_next(L);
@@ -412,12 +399,32 @@ static expr_node_t *node_new(node_kind_t k) {
   return n;
 }
 
+/*
+  Стек вложенных вызовов разбора
+  от низкого до высокого приоритета
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  parse_expr()
+    parse_lor()                           ||
+      parse_land()                        &&
+        parse_bor()                       |
+          parse_bxor()                    ^
+            parse_band()                  &
+              parse_eq()                  ==  !=
+                parse_rel()               <   >   <=  >=
+                  parse_shift()           <<  >>
+                    parse_add()           +   -
+                      parse_mul()         *   /   %
+                        parse_unary()     !A  ~A  -A  (cast)A
+                          parse_primary() Числа, Регистры, Функции, Переменные, (вложенные выражения)
+                        ...
+  ...................... - продолжение родительских функций
+ */
 static expr_node_t *parse_expr(lexer_t *L) {
 
-  expr_node_t *cond = parse_lor(L);
+  expr_node_t *cond = parse_lor(L); /* парсим с самого низкого приоритета */
   if(!cond) return NULL;
 
-  if (CUR(L) == T_QUESTION) {
+  if (CUR(L) == T_QUESTION) { /* если это тернарная операция */
     ADV(L);
 
     expr_node_t *yes = parse_expr(L);
@@ -467,9 +474,9 @@ static expr_node_t *parse_lor(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_LOR:
-      op = OP_LOR;
-      break;
+      case T_LOR:
+        op = OP_LOR;
+        break;
     }
     if (op < 0)
       break;
@@ -500,9 +507,9 @@ static expr_node_t *parse_land(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_LAND:
-      op = OP_LAND;
-      break;
+      case T_LAND:
+        op = OP_LAND;
+        break;
     }
     if (op < 0)
       break;
@@ -533,9 +540,9 @@ static expr_node_t *parse_bor(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_PIPE:
-      op = OP_OR;
-      break;
+      case T_PIPE:
+        op = OP_OR;
+        break;
     }
     if (op < 0)
       break;
@@ -566,9 +573,9 @@ static expr_node_t *parse_bxor(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_CARET:
-      op = OP_XOR;
-      break;
+      case T_CARET:
+        op = OP_XOR;
+        break;
     }
     if (op < 0)
       break;
@@ -599,9 +606,9 @@ static expr_node_t *parse_band(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_AMP:
-      op = OP_AND;
-      break;
+      case T_AMP:
+        op = OP_AND;
+        break;
     }
     if (op < 0)
       break;
@@ -632,12 +639,12 @@ static expr_node_t *parse_eq(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_EQ:
-      op = OP_EQ;
-      break;
-    case T_NE:
-      op = OP_NE;
-      break;
+      case T_EQ:
+        op = OP_EQ;
+        break;
+      case T_NE:
+        op = OP_NE;
+        break;
     }
     if (op < 0)
       break;
@@ -668,18 +675,18 @@ static expr_node_t *parse_rel(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_LT:
-      op = OP_LT;
-      break;
-    case T_GT:
-      op = OP_GT;
-      break;
-    case T_LE:
-      op = OP_LE;
-      break;
-    case T_GE:
-      op = OP_GE;
-      break;
+      case T_LT:
+        op = OP_LT;
+        break;
+      case T_GT:
+        op = OP_GT;
+        break;
+      case T_LE:
+        op = OP_LE;
+        break;
+      case T_GE:
+        op = OP_GE;
+        break;
     }
     if (op < 0)
       break;
@@ -710,12 +717,12 @@ static expr_node_t *parse_shift(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_LSHIFT:
-      op = OP_SHL;
-      break;
-    case T_RSHIFT:
-      op = OP_SHR;
-      break;
+      case T_LSHIFT:
+        op = OP_SHL;
+        break;
+      case T_RSHIFT:
+        op = OP_SHR;
+        break;
     }
     if (op < 0)
       break;
@@ -746,12 +753,12 @@ static expr_node_t *parse_add(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_PLUS:
-      op = OP_ADD;
-      break;
-    case T_MINUS:
-      op = OP_SUB;
-      break;
+      case T_PLUS:
+        op = OP_ADD;
+        break;
+      case T_MINUS:
+        op = OP_SUB;
+        break;
     }
     if (op < 0)
       break;
@@ -782,15 +789,15 @@ static expr_node_t *parse_mul(lexer_t *L) {
   while (1) {
     int op = -1;
     switch (CUR(L)) {
-    case T_STAR:
-      op = OP_MUL;
-      break;
-    case T_SLASH:
-      op = OP_DIV;
-      break;
-    case T_PERCENT:
-      op = OP_MOD;
-      break;
+      case T_STAR:
+        op = OP_MUL;
+        break;
+      case T_SLASH:
+        op = OP_DIV;
+        break;
+      case T_PERCENT:
+        op = OP_MOD;
+        break;
     }
     if (op < 0)
       break;
@@ -1250,122 +1257,101 @@ void write_bitfield(void *struct_ptr, const field_map_t *fm, expr_val_t val) {
     }
 }
 
-/* чтение поля структуры/составного типа (AppStruct) */
+/* Чтение поля из структуры/пользовательского типа (AppStruct)
+   с использованием карты полей */
 static expr_val_t read_field(const void *struct_ptr, const field_map_t *fm) {
-
   const uint8_t *bytes = (const uint8_t *)struct_ptr;
-
   if (fm->type == FTYPE_FLOAT) {
-
     float f;
     memcpy(&f, bytes + fm->offset, sizeof(float));
     return val_flt(f);
 
   } else if (fm->type == FTYPE_DOUBLE) {
-
     double f;
     memcpy(&f, bytes + fm->offset, sizeof(double));
     return val_flt(f);
 
   } else if (fm->type == FTYPE_INT16) {
-
     int16_t v;
     memcpy(&v, bytes + fm->offset, sizeof(int16_t));
     return val_int(v);
 
   } else if (fm->type == FTYPE_UINT16) {
-
     uint16_t v;
     memcpy(&v, bytes + fm->offset, sizeof(uint16_t));
     return val_int(v);
 
   } else if (fm->type == FTYPE_INT32) {
-
     int32_t v;
     memcpy(&v, bytes + fm->offset, sizeof(int32_t));
     return val_int(v);
 
   } else if (fm->type == FTYPE_UINT32) {
-
     uint32_t v;
     memcpy(&v, bytes + fm->offset, sizeof(uint32_t));
     return val_int(v);
 
   } else if (fm->type == FTYPE_INT64) {
-
     int64_t v;
     memcpy(&v, bytes + fm->offset, sizeof(int64_t));
     return val_int(v);
-  } else if (fm->type == FTYPE_UINT64) {
 
+  } else if (fm->type == FTYPE_UINT64) {
     uint64_t v;
     memcpy(&v, bytes + fm->offset, sizeof(uint64_t));
     return val_int((int64_t)v);
 
   } else if (fm->type == FTYPE_UINT8) {
-
     uint8_t v;
     memcpy(&v, bytes + fm->offset, sizeof(uint8_t));
     return val_int(v);
 
   } else if (fm->type == FTYPE_BITFIELD) {
-
     expr_val_t result;
     read_bitfield(struct_ptr, fm, &result);
     return result;
   }
-
   return val_int(0);
 }
 
-/* Запись значения в целевой тип с использованием карты полей */
-void write_field(void *struct_ptr, const field_map_t *fm,
-                        expr_val_t val)
+/* Запись значения в целевой тип структуру/пользовательский тип (AppStruct)
+   с использованием карты полей */
+void write_field(void *struct_ptr, const field_map_t *fm, expr_val_t val)
 {
   uint8_t *bytes = (uint8_t *)struct_ptr;
-
   if (fm->type == FTYPE_FLOAT) {
-
     float f = val.is_float ? val.f : (float)val.i;
     memcpy(bytes + fm->offset, &f, sizeof(float));
 
   } else if (fm->type == FTYPE_DOUBLE) {
-
     double f = val.is_float ? val.f : (double)val.i;
     memcpy(bytes + fm->offset, &f, sizeof(double));
 
   } else if (fm->type == FTYPE_INT16) {
-
     int16_t v = (int16_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int16_t));
 
   } else if (fm->type == FTYPE_UINT16) {
-
     uint16_t v = (uint16_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint16_t));
 
   } else if (fm->type == FTYPE_INT32) {
-
     int32_t v = (int32_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int32_t));
 
   } else if (fm->type == FTYPE_UINT32) {
-
     uint32_t v = (uint32_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint32_t));
 
   } else if (fm->type == FTYPE_INT64) {
-
     int64_t v = val.i;
     memcpy(bytes + fm->offset, &v, sizeof(int64_t));
 
   } else if (fm->type == FTYPE_UINT64) {
-
     uint64_t v = (uint64_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint64_t));
 
   } else if (fm->type == FTYPE_UINT8) {
-
     uint8_t v = (uint8_t)val.i;
     memcpy(bytes + fm->offset, &v, sizeof(uint8_t));
 
@@ -1588,8 +1574,10 @@ expr_val_t expr_eval(const expr_node_t *n,
                    : expr_eval(n->ternary.no,   r, struct_ptr, fmap,
                                fmap_size);
       break;
+
     case NODE_CAST: {
-      expr_val_t c = expr_eval(n->cast.child, r, struct_ptr, fmap, fmap_size);
+      expr_val_t c = expr_eval(n->cast.child, r,
+                               struct_ptr, fmap, fmap_size);
       int64_t r = to_int(c);
       switch (n->cast.ctype) {
         case CAST_FLOAT: {
@@ -1621,7 +1609,8 @@ expr_val_t expr_eval(const expr_node_t *n,
 
     case NODE_FLOAT_CONVERT: {
       expr_val_t c =
-        expr_eval(n->byteconvert.child, r, struct_ptr, fmap, fmap_size);
+        expr_eval(n->byteconvert.child, r,
+                  struct_ptr, fmap, fmap_size);
       uint32_t bits = (uint32_t)to_int(c);
       float f;
       memcpy(&f, &bits, 4);
@@ -1630,7 +1619,8 @@ expr_val_t expr_eval(const expr_node_t *n,
 
     case NODE_DOUBLE_CONVERT: {
       expr_val_t c =
-        expr_eval(n->byteconvert.child, r, struct_ptr, fmap, fmap_size);
+        expr_eval(n->byteconvert.child, r,
+                  struct_ptr, fmap, fmap_size);
       uint64_t bits = (uint64_t)to_int(c);
       double d;
       memcpy(&d, &bits, 8);
@@ -1682,8 +1672,10 @@ void free_rules(rules_t *r) {
 
 /* рекурсивный обход AST-дерева для поиска
    уникальных адресов Modbus-регистров с фиксацией их в массивах */
-static void build_req(expr_node_t *n, uint16_t *req_HR_regs, int *count_HR_regs,
-               uint16_t *req_IR_regs, int *count_IR_regs)
+static void build_req(expr_node_t *n,
+                      /* временный массив регистров для отметки найденных регистров */
+                      uint16_t *req_HR_regs, int *count_HR_regs,
+                      uint16_t *req_IR_regs, int *count_IR_regs)
 {
   if (!n)
     return;

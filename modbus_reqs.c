@@ -87,41 +87,30 @@ int optimize_modbus_requests( uint16_t         *regs,
 
 /*
  * Считывание регистров от ведомого устройства
- *  ctx      Контекст modbus
- *  hr_regs  Карта HR-регистров, куда сохраняются результаты опросов
- *  ir_regs  Карта IR-регистров, куда сохраняются результаты опросов
  * Результат:
  *  0 - безошибочное чтение
  * -1 - была ошибка чтения
  */
-int update_registers( modbus_t          *ctx
-                    , modbus_request_t  *rq
-                    , int                rq_count
-                    , uint16_t          *regs
-                    , int              (*func)( modbus_t*, int, int, uint16_t* )
-                    )
+int update_registers
+  ( modbus_t          *ctx       /* Контекст modbus */
+  , modbus_request_t  *rq        /* Массив запросов */
+  , int                rq_count  /* Число запросов в массиве */
+  , uint16_t          *regs      /* Массив регистров для сохранения данных */
+  , int              (*func)( modbus_t*, int, int, uint16_t* ) /* функция чтения */
+  )
 {
   int rc;
-
-  if( !ctx
-   || !regs
-   || !rq
-   || !func
-    )
-    return -1;
+  if( !ctx || !regs || !rq || !func ) return -1;
 
   for( int i = 0; i < rq_count; i++ ) {
-
     rc = func( ctx ,
-              (int)rq[ i ].start_addr ,
-              (int)rq[ i ].quantity ,
+              (int)rq[ i ].start_addr , /* стартовый адрес регистра */
+              (int)rq[ i ].quantity ,   /* количество регистров */
               &regs[ (int)rq[ i ].start_addr ] );
-
     if( rc == -1 ) {
       fprintf( stderr, "%s\n", modbus_strerror( errno ) );
       return -1;
     }
   }
-
   return 0;
 }
